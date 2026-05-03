@@ -69,12 +69,12 @@ const languageModeText = computed(() =>
     })
 );
 
-function syncMenuState(mode: LocaleMode) {
+function syncMenuState(mode: LocaleMode, localeCode: LocaleCode) {
     if (!isTauri) {
         return;
     }
 
-    void invoke("set_language_menu_state", { mode });
+    void invoke("sync_menu_state", { mode, locale: localeCode });
 }
 
 watch(
@@ -87,7 +87,7 @@ watch(
             content.value = samples[resolvedLocale];
         }
 
-        syncMenuState(nextMode);
+        syncMenuState(nextMode, resolvedLocale);
     },
     { immediate: true }
 );
