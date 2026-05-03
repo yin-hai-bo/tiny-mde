@@ -17,13 +17,14 @@
         </div>
 
         <section v-if="activeDocument" class="editor-workspace">
-            <textarea
-                id="markdown-source"
-                class="editor-textarea"
-                spellcheck="false"
-                :value="activeDocument.content"
-                @input="updateActiveContent"
-            />
+            <section class="pane">
+                <MilkdownEditor
+                    :key="activeDocument.id"
+                    :model-value="activeDocument.content"
+                    :placeholder="t('editor.placeholder')"
+                    @update:model-value="updateActiveContent"
+                />
+            </section>
         </section>
     </main>
 </template>
@@ -40,6 +41,7 @@ import {
     type LocaleMode,
     type ThemeMode,
 } from "./i18n";
+import MilkdownEditor from "./components/MilkdownEditor.vue";
 
 type DocumentTab = {
     id: string;
@@ -121,13 +123,13 @@ function createNewDocument() {
     activeDocumentId.value = documentItem.id;
 }
 
-function updateActiveContent(event: Event) {
+function updateActiveContent(nextMarkdown: string) {
     const currentDocument = activeDocument.value;
     if (!currentDocument) {
         return;
     }
 
-    currentDocument.content = (event.target as HTMLTextAreaElement).value;
+    currentDocument.content = nextMarkdown;
     currentDocument.dirty = true;
 }
 
@@ -322,6 +324,7 @@ onBeforeUnmount(() => {
     --shell-bg: linear-gradient(180deg, #1e232d 0%, #161a21 100%);
     --shell-overlay: linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 60%);
     --text-main: #e9edf5;
+    --text-muted: #a7b0c0;
     --tabs-bg: #1a1f28;
     --tabs-border: #343b48;
     --tab-text: #b8c0cf;
@@ -329,9 +332,11 @@ onBeforeUnmount(() => {
     --tab-active-text: #ffffff;
     --tab-accent: #d7a44c;
     --tab-close: #8993a7;
-    --editor-border: #394252;
-    --editor-bg: #0e1117;
-    --focus-outline: #d7a44c;
+    --panel-border: #394252;
+    --panel-bg: #0e1117;
+    --panel-header-bg: #181d26;
+    --panel-header-border: #2e3746;
+    --editor-toolbar-bg: #181d26;
 }
 
 :global(html[data-theme="light"]) {
@@ -339,6 +344,7 @@ onBeforeUnmount(() => {
     --shell-bg: linear-gradient(180deg, #f9f7f1 0%, #ece7dd 100%);
     --shell-overlay: linear-gradient(135deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0) 60%);
     --text-main: #2a241e;
+    --text-muted: #6a6158;
     --tabs-bg: #ded7ca;
     --tabs-border: #b8ae9f;
     --tab-text: #605545;
@@ -346,9 +352,62 @@ onBeforeUnmount(() => {
     --tab-active-text: #1f1a17;
     --tab-accent: #9f6b20;
     --tab-close: #7a705f;
-    --editor-border: #c8beaf;
-    --editor-bg: #fffdf8;
-    --focus-outline: #9f6b20;
+    --panel-border: #c8beaf;
+    --panel-bg: #fffdf8;
+    --panel-header-bg: #f1ebdf;
+    --panel-header-border: #d7cdbf;
+    --editor-toolbar-bg: #f1ebdf;
+}
+
+:global(.milkdown) {
+    --crepe-color-background: var(--panel-bg);
+    --crepe-color-on-background: var(--text-main);
+    --crepe-color-surface: var(--panel-bg);
+    --crepe-color-surface-low: var(--panel-header-bg);
+    --crepe-color-on-surface: var(--text-main);
+    --crepe-color-on-surface-variant: var(--text-muted);
+    --crepe-color-outline: var(--panel-border);
+    --crepe-color-primary: var(--text-main);
+    --crepe-color-secondary: var(--panel-header-border);
+    --crepe-color-on-secondary: var(--text-main);
+    --crepe-color-inverse: var(--tab-active-bg);
+    --crepe-color-on-inverse: var(--tab-active-text);
+    --crepe-color-inline-code: #8dc4ff;
+    --crepe-color-error: #d24b4b;
+    --crepe-color-hover: var(--panel-header-bg);
+    --crepe-color-selected: var(--tabs-bg);
+    --crepe-color-inline-area: rgba(255, 255, 255, 0.08);
+    --crepe-font-title: "Segoe UI", sans-serif;
+    --crepe-font-default: "Segoe UI", sans-serif;
+    --crepe-font-code: "Cascadia Code", "Consolas", monospace;
+    height: 100%;
+    background: var(--panel-bg);
+    color: var(--text-main);
+}
+
+:global(html[data-theme="light"] .milkdown) {
+    --crepe-color-inline-code: #0b62b3;
+    --crepe-color-inline-area: rgba(74, 58, 38, 0.08);
+}
+
+:global(.milkdown .editor) {
+    height: 100%;
+}
+
+:global(.milkdown .ProseMirror) {
+    min-height: 100%;
+    padding: 12px 14px 24px;
+    color: var(--text-main);
+}
+
+:global(.milkdown .toolbar),
+:global(.milkdown .milkdown-toolbar) {
+    background: var(--editor-toolbar-bg);
+}
+
+:global(.milkdown .toolbar button),
+:global(.milkdown .milkdown-toolbar button) {
+    color: var(--text-main);
 }
 
 .app-shell {
@@ -410,24 +469,17 @@ onBeforeUnmount(() => {
     display: flex;
     min-height: 0;
     flex: 1;
-    flex-direction: column;
     padding: 8px;
 }
 
-.editor-textarea {
+.pane {
+    display: flex;
     min-height: 0;
     flex: 1;
-    border: 1px solid var(--editor-border);
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--panel-border);
     border-radius: 10px;
-    padding: 12px 14px;
-    background: var(--editor-bg);
-    color: var(--text-main);
-    font: 16px/1.75 "Cascadia Code", "Consolas", monospace;
-    resize: none;
-}
-
-.editor-textarea:focus {
-    outline: 2px solid var(--focus-outline);
-    outline-offset: 2px;
+    background: var(--panel-bg);
 }
 </style>

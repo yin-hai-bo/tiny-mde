@@ -12,6 +12,10 @@ const messages = {
         app: {
             name: "Tiny Markdown Editor",
         },
+        editor: {
+            editor: "Editor",
+            placeholder: "Write markdown here...",
+        },
         tabs: {
             listLabel: "Open documents",
             untitled: "Untitled {n}",
@@ -21,6 +25,10 @@ const messages = {
     "zh-CN": {
         app: {
             name: "Tiny Markdown Editor",
+        },
+        editor: {
+            editor: "编辑",
+            placeholder: "在这里输入 Markdown...",
         },
         tabs: {
             listLabel: "已打开文档",
