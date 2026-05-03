@@ -5,16 +5,18 @@ use serde::Serialize;
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::Mutex,
 };
 use tauri::{
     menu::{
         AboutMetadataBuilder, CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder,
         PredefinedMenuItem, SubmenuBuilder,
     },
-    AppHandle, Emitter, Manager, Wry,
+    AppHandle, Emitter, Manager, State, Wry,
 };
 
 const DEFAULT_LOCALE_MODE: &str = "auto";
+const DEFAULT_THEME_MODE: &str = "system";
 const FILE_NEW_ID: &str = "file_new";
 const FILE_OPEN_ID: &str = "file_open";
 const FILE_SAVE_ID: &str = "file_save";
@@ -22,9 +24,24 @@ const FILE_SAVE_AS_ID: &str = "file_save_as";
 const LANGUAGE_AUTO_ID: &str = "language_auto";
 const LANGUAGE_EN_ID: &str = "language_en";
 const LANGUAGE_ZH_CN_ID: &str = "language_zh_cn";
+const THEME_SYSTEM_ID: &str = "theme_system";
+const THEME_LIGHT_ID: &str = "theme_light";
+const THEME_DARK_ID: &str = "theme_dark";
 const LANGUAGE_MENU_EVENT: &str = "language-menu-selected";
+const THEME_MENU_EVENT: &str = "theme-menu-selected";
 const APP_MENU_EVENT: &str = "app-menu-selected";
 const LOCALE_MODE_FILE_NAME: &str = "locale-mode.txt";
+const THEME_MODE_FILE_NAME: &str = "theme-mode.txt";
+
+#[derive(Default)]
+struct AppRuntimeState {
+    frontend_ready: bool,
+    pending_menu_actions: Vec<String>,
+}
+
+struct SharedAppState {
+    runtime: Mutex<AppRuntimeState>,
+}
 
 #[derive(Serialize)]
 struct OpenedDocument {
@@ -45,8 +62,18 @@ fn get_saved_locale_mode(app: AppHandle<Wry>) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn sync_menu_state(app: AppHandle<Wry>, mode: String, locale: String) -> Result<(), String> {
-    if !matches!(mode.as_str(), "auto" | "en" | "zh-CN") {
+fn get_saved_theme_mode(app: AppHandle<Wry>) -> Result<String, String> {
+    load_saved_theme_mode(&app)
+}
+
+#[tauri::command]
+fn sync_app_state(
+    app: AppHandle<Wry>,
+    locale_mode: String,
+    locale: String,
+    theme_mode: String,
+) -> Result<(), String> {
+    if !matches!(locale_mode.as_str(), "auto" | "en" | "zh-CN") {
         return Err("unsupported language mode".to_string());
     }
 
@@ -54,10 +81,34 @@ fn sync_menu_state(app: AppHandle<Wry>, mode: String, locale: String) -> Result<
         return Err("unsupported locale".to_string());
     }
 
-    save_locale_mode(&app, mode.as_str())?;
+    if !matches!(theme_mode.as_str(), "system" | "light" | "dark") {
+        return Err("unsupported theme mode".to_string());
+    }
 
-    let menu = build_app_menu(&app, mode.as_str(), locale.as_str()).map_err(|error| error.to_string())?;
+    save_locale_mode(&app, locale_mode.as_str())?;
+    save_theme_mode(&app, theme_mode.as_str())?;
+
+    let menu = build_app_menu(&app, locale_mode.as_str(), locale.as_str(), theme_mode.as_str())
+        .map_err(|error| error.to_string())?;
     app.set_menu(menu).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn notify_frontend_ready(app: AppHandle<Wry>, state: State<'_, SharedAppState>) -> Result<(), String> {
+    let pending_actions = {
+        let mut runtime = state
+            .runtime
+            .lock()
+            .map_err(|_| "failed to lock app runtime state".to_string())?;
+        runtime.frontend_ready = true;
+        std::mem::take(&mut runtime.pending_menu_actions)
+    };
+
+    for action_id in pending_actions {
+        emit_app_menu_action(&app, action_id.as_str());
+    }
+
     Ok(())
 }
 
@@ -107,10 +158,42 @@ fn emit_language_change(app: &AppHandle<Wry>, mode: &str) {
     }
 }
 
+fn emit_theme_change(app: &AppHandle<Wry>, mode: &str) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.emit(THEME_MENU_EVENT, mode);
+    }
+}
+
 fn emit_app_menu_action(app: &AppHandle<Wry>, action_id: &str) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.emit(APP_MENU_EVENT, action_id);
     }
+}
+
+fn dispatch_or_queue_app_menu_action(
+    app: &AppHandle<Wry>,
+    state: &SharedAppState,
+    action_id: &str,
+) -> Result<(), String> {
+    let should_emit_now = {
+        let mut runtime = state
+            .runtime
+            .lock()
+            .map_err(|_| "failed to lock app runtime state".to_string())?;
+
+        if runtime.frontend_ready {
+            true
+        } else {
+            runtime.pending_menu_actions.push(action_id.to_string());
+            false
+        }
+    };
+
+    if should_emit_now {
+        emit_app_menu_action(app, action_id);
+    }
+
+    Ok(())
 }
 
 fn markdown_dialog() -> FileDialog {
@@ -126,7 +209,7 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_else(|| path.display().to_string())
 }
 
-fn locale_mode_path(app: &AppHandle<Wry>) -> Result<PathBuf, String> {
+fn app_config_file_path(app: &AppHandle<Wry>, file_name: &str) -> Result<PathBuf, String> {
     let app_config_dir = app
         .path()
         .app_config_dir()
@@ -135,11 +218,11 @@ fn locale_mode_path(app: &AppHandle<Wry>) -> Result<PathBuf, String> {
     fs::create_dir_all(&app_config_dir)
         .map_err(|error| format!("failed to create app config dir {}: {error}", app_config_dir.display()))?;
 
-    Ok(app_config_dir.join(LOCALE_MODE_FILE_NAME))
+    Ok(app_config_dir.join(file_name))
 }
 
 fn load_saved_locale_mode(app: &AppHandle<Wry>) -> Result<String, String> {
-    let path = locale_mode_path(app)?;
+    let path = app_config_file_path(app, LOCALE_MODE_FILE_NAME)?;
     let saved_mode = match fs::read_to_string(&path) {
         Ok(content) => content.trim().to_string(),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => DEFAULT_LOCALE_MODE.to_string(),
@@ -149,10 +232,26 @@ fn load_saved_locale_mode(app: &AppHandle<Wry>) -> Result<String, String> {
     Ok(normalize_locale_mode(saved_mode.as_str()).to_string())
 }
 
+fn load_saved_theme_mode(app: &AppHandle<Wry>) -> Result<String, String> {
+    let path = app_config_file_path(app, THEME_MODE_FILE_NAME)?;
+    let saved_mode = match fs::read_to_string(&path) {
+        Ok(content) => content.trim().to_string(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => DEFAULT_THEME_MODE.to_string(),
+        Err(error) => return Err(format!("failed to read {}: {error}", path.display())),
+    };
+
+    Ok(normalize_theme_mode(saved_mode.as_str()).to_string())
+}
+
 fn save_locale_mode(app: &AppHandle<Wry>, mode: &str) -> Result<(), String> {
-    let path = locale_mode_path(app)?;
-    let normalized_mode = normalize_locale_mode(mode);
-    fs::write(&path, normalized_mode)
+    let path = app_config_file_path(app, LOCALE_MODE_FILE_NAME)?;
+    fs::write(&path, normalize_locale_mode(mode))
+        .map_err(|error| format!("failed to write {}: {error}", path.display()))
+}
+
+fn save_theme_mode(app: &AppHandle<Wry>, mode: &str) -> Result<(), String> {
+    let path = app_config_file_path(app, THEME_MODE_FILE_NAME)?;
+    fs::write(&path, normalize_theme_mode(mode))
         .map_err(|error| format!("failed to write {}: {error}", path.display()))
 }
 
@@ -161,6 +260,14 @@ fn normalize_locale_mode(mode: &str) -> &str {
         "en" => "en",
         "zh-CN" => "zh-CN",
         _ => DEFAULT_LOCALE_MODE,
+    }
+}
+
+fn normalize_theme_mode(mode: &str) -> &str {
+    match mode {
+        "light" => "light",
+        "dark" => "dark",
+        _ => DEFAULT_THEME_MODE,
     }
 }
 
@@ -196,7 +303,7 @@ fn read_document(path: PathBuf) -> Result<OpenedDocument, String> {
 
 fn build_language_submenu(
     app: &AppHandle<Wry>,
-    mode: &str,
+    locale_mode: &str,
     locale: &str,
 ) -> tauri::Result<tauri::menu::Submenu<Wry>> {
     let auto = CheckMenuItemBuilder::with_id(
@@ -230,10 +337,7 @@ fn build_language_submenu(
     .checked(false)
     .build(app)?;
 
-    auto.set_checked(false)?;
-    english.set_checked(false)?;
-    simplified_chinese.set_checked(false)?;
-    match normalize_locale_mode(mode) {
+    match normalize_locale_mode(locale_mode) {
         "auto" => auto.set_checked(true)?,
         "zh-CN" => simplified_chinese.set_checked(true)?,
         _ => english.set_checked(true)?,
@@ -253,9 +357,71 @@ fn build_language_submenu(
     .build()
 }
 
-fn build_app_menu(app: &AppHandle<Wry>, mode: &str, locale: &str) -> tauri::Result<tauri::menu::Menu<Wry>> {
+fn build_theme_submenu(
+    app: &AppHandle<Wry>,
+    theme_mode: &str,
+    locale: &str,
+) -> tauri::Result<tauri::menu::Submenu<Wry>> {
+    let system = CheckMenuItemBuilder::with_id(
+        THEME_SYSTEM_ID,
+        if is_chinese_locale(locale) {
+            "跟随系统(&S)"
+        } else {
+            "Follow System(&S)"
+        },
+    )
+    .checked(false)
+    .build(app)?;
+    let light = CheckMenuItemBuilder::with_id(
+        THEME_LIGHT_ID,
+        if is_chinese_locale(locale) {
+            "浅色(&L)"
+        } else {
+            "Light(&L)"
+        },
+    )
+    .checked(false)
+    .build(app)?;
+    let dark = CheckMenuItemBuilder::with_id(
+        THEME_DARK_ID,
+        if is_chinese_locale(locale) {
+            "深色(&D)"
+        } else {
+            "Dark(&D)"
+        },
+    )
+    .checked(false)
+    .build(app)?;
+
+    match normalize_theme_mode(theme_mode) {
+        "light" => light.set_checked(true)?,
+        "dark" => dark.set_checked(true)?,
+        _ => system.set_checked(true)?,
+    }
+
+    SubmenuBuilder::new(
+        app,
+        if is_chinese_locale(locale) {
+            "主题(&T)"
+        } else {
+            "&Theme"
+        },
+    )
+    .item(&system)
+    .item(&light)
+    .item(&dark)
+    .build()
+}
+
+fn build_app_menu(
+    app: &AppHandle<Wry>,
+    locale_mode: &str,
+    locale: &str,
+    theme_mode: &str,
+) -> tauri::Result<tauri::menu::Menu<Wry>> {
     let is_chinese = is_chinese_locale(locale);
-    let language_submenu = build_language_submenu(app, mode, locale)?;
+    let language_submenu = build_language_submenu(app, locale_mode, locale)?;
+    let theme_submenu = build_theme_submenu(app, theme_mode, locale)?;
 
     let new_item = MenuItemBuilder::with_id(FILE_NEW_ID, if is_chinese { "新建(&N)" } else { "&New" })
         .accelerator("CmdOrCtrl+N")
@@ -283,6 +449,7 @@ fn build_app_menu(app: &AppHandle<Wry>, mode: &str, locale: &str) -> tauri::Resu
         },
     )
     .item(&language_submenu)
+    .item(&theme_submenu)
     .build()?;
 
     let file_submenu = SubmenuBuilder::new(app, if is_chinese { "文件(&F)" } else { "&File" })
@@ -338,17 +505,28 @@ fn build_app_menu(app: &AppHandle<Wry>, mode: &str, locale: &str) -> tauri::Resu
 
 fn main() {
     tauri::Builder::default()
+        .manage(SharedAppState {
+            runtime: Mutex::new(AppRuntimeState::default()),
+        })
         .setup(|app| {
-            let saved_mode = load_saved_locale_mode(&app.handle())?;
-            let locale = resolve_locale_from_mode(saved_mode.as_str());
-            let menu =
-                build_app_menu(&app.handle(), saved_mode.as_str(), locale.as_str()).map_err(|error| error.to_string())?;
+            let locale_mode = load_saved_locale_mode(&app.handle())?;
+            let locale = resolve_locale_from_mode(locale_mode.as_str());
+            let theme_mode = load_saved_theme_mode(&app.handle())?;
+            let menu = build_app_menu(
+                &app.handle(),
+                locale_mode.as_str(),
+                locale.as_str(),
+                theme_mode.as_str(),
+            )
+            .map_err(|error| error.to_string())?;
             app.set_menu(menu).map_err(|error| error.to_string())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_saved_locale_mode,
-            sync_menu_state,
+            get_saved_theme_mode,
+            sync_app_state,
+            notify_frontend_ready,
             open_markdown_files,
             save_document
         ])
@@ -356,8 +534,13 @@ fn main() {
             LANGUAGE_AUTO_ID => emit_language_change(app, "auto"),
             LANGUAGE_EN_ID => emit_language_change(app, "en"),
             LANGUAGE_ZH_CN_ID => emit_language_change(app, "zh-CN"),
+            THEME_SYSTEM_ID => emit_theme_change(app, "system"),
+            THEME_LIGHT_ID => emit_theme_change(app, "light"),
+            THEME_DARK_ID => emit_theme_change(app, "dark"),
             FILE_NEW_ID | FILE_OPEN_ID | FILE_SAVE_ID | FILE_SAVE_AS_ID => {
-                emit_app_menu_action(app, event.id().as_ref())
+                if let Some(state) = app.try_state::<SharedAppState>() {
+                    let _ = dispatch_or_queue_app_menu_action(app, &state, event.id().as_ref());
+                }
             }
             _ => {}
         })

@@ -2,6 +2,8 @@ import { createI18n } from "vue-i18n";
 
 export type LocaleCode = "en" | "zh-CN";
 export type LocaleMode = "auto" | LocaleCode;
+export type ThemeMode = "system" | "light" | "dark";
+export type ResolvedTheme = "light" | "dark";
 
 const DEFAULT_LOCALE: LocaleCode = "en";
 
@@ -13,9 +15,6 @@ const messages = {
         tabs: {
             listLabel: "Open documents",
             untitled: "Untitled {n}",
-            unsaved: "Unsaved document",
-            saved: "Saved",
-            modified: "Modified",
             confirmCloseDirty: 'Close "{name}" without saving?',
         },
     },
@@ -26,9 +25,6 @@ const messages = {
         tabs: {
             listLabel: "已打开文档",
             untitled: "未命名 {n}",
-            unsaved: "未保存文档",
-            saved: "已保存",
-            modified: "已修改",
             confirmCloseDirty: '关闭“{name}”且不保存吗？',
         },
     },
@@ -42,8 +38,22 @@ function resolveSystemLocale(): LocaleCode {
     return navigator.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en";
 }
 
+function prefersDarkTheme() {
+    return typeof window !== "undefined" &&
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
 export function resolveLocaleFromMode(mode: LocaleMode): LocaleCode {
     return mode === "auto" ? resolveSystemLocale() : mode;
+}
+
+export function resolveThemeFromMode(mode: ThemeMode): ResolvedTheme {
+    if (mode === "light" || mode === "dark") {
+        return mode;
+    }
+
+    return prefersDarkTheme() ? "dark" : "light";
 }
 
 export const i18n = createI18n({
@@ -64,4 +74,15 @@ export function applyLocaleMode(mode: LocaleMode) {
     }
 
     return locale;
+}
+
+export function applyThemeMode(mode: ThemeMode) {
+    const theme = resolveThemeFromMode(mode);
+
+    if (typeof document !== "undefined") {
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+    }
+
+    return theme;
 }

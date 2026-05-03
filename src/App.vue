@@ -17,16 +17,6 @@
         </div>
 
         <section v-if="activeDocument" class="editor-workspace">
-            <div class="document-meta">
-                <div>
-                    <h1>{{ activeDocument.name }}</h1>
-                    <p>{{ activeDocument.path ?? t("tabs.unsaved") }}</p>
-                </div>
-                <p class="document-state">
-                    {{ activeDocument.dirty ? t("tabs.modified") : t("tabs.saved") }}
-                </p>
-            </div>
-
             <textarea
                 id="markdown-source"
                 class="editor-textarea"
@@ -43,7 +33,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
-import { applyLocaleMode, type LocaleCode, type LocaleMode } from "./i18n";
+import {
+    applyLocaleMode,
+    applyThemeMode,
+    type LocaleCode,
+    type LocaleMode,
+    type ThemeMode,
+} from "./i18n";
 
 type DocumentTab = {
     id: string;
@@ -64,9 +60,12 @@ type SavedDocument = {
     path: string;
 };
 
-const MENU_EVENT = "app-menu-selected";
+const LOCALE_MENU_EVENT = "language-menu-selected";
+const THEME_MENU_EVENT = "theme-menu-selected";
+const APP_MENU_EVENT = "app-menu-selected";
 const { t } = useI18n();
 const localeMode = ref<LocaleMode>("auto");
+const themeMode = ref<ThemeMode>("system");
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const documents = ref<DocumentTab[]>([]);
 const activeDocumentId = ref<string>("");
@@ -76,12 +75,20 @@ const activeDocument = computed(
     () => documents.value.find((documentItem) => documentItem.id === activeDocumentId.value) ?? null
 );
 
-function syncMenuState(mode: LocaleMode, localeCode: LocaleCode) {
+function syncAppState(localeCode: LocaleCode) {
     if (!isTauri) {
         return Promise.resolve();
     }
 
-    return invoke("sync_menu_state", { mode, locale: localeCode });
+    return invoke("sync_app_state", {
+        localeMode: localeMode.value,
+        locale: localeCode,
+        themeMode: themeMode.value,
+    });
+}
+
+function applyCurrentTheme() {
+    return applyThemeMode(themeMode.value);
 }
 
 function makeDocumentId() {
@@ -156,14 +163,7 @@ async function openDocuments() {
         return;
     }
 
-    const canRecycleInitialDocument =
-        documents.value.length === 1 &&
-        !documents.value[0].path &&
-        !documents.value[0].dirty &&
-        documents.value[0].content.length === 0;
-
     const nextDocuments = [...documents.value];
-    let recycleConsumed = false;
     let nextActiveId = "";
 
     for (const openedDocument of openedDocuments) {
@@ -176,17 +176,6 @@ async function openDocuments() {
             existingDocument.content = openedDocument.content;
             existingDocument.dirty = false;
             nextActiveId ||= existingDocument.id;
-            continue;
-        }
-
-        if (canRecycleInitialDocument && !recycleConsumed) {
-            const recycledDocument = nextDocuments[0];
-            recycledDocument.name = openedDocument.name;
-            recycledDocument.path = openedDocument.path;
-            recycledDocument.content = openedDocument.content;
-            recycledDocument.dirty = false;
-            recycleConsumed = true;
-            nextActiveId ||= recycledDocument.id;
             continue;
         }
 
@@ -245,13 +234,11 @@ async function handleMenuAction(actionId: string) {
     }
 }
 
-watch(
-    localeMode,
-    (nextMode) => {
-        const resolvedLocale = applyLocaleMode(nextMode);
-        void syncMenuState(nextMode, resolvedLocale);
-    }
-);
+watch([localeMode, themeMode], ([nextLocaleMode]) => {
+    const resolvedLocale = applyLocaleMode(nextLocaleMode);
+    applyCurrentTheme();
+    void syncAppState(resolvedLocale);
+});
 
 watchEffect(() => {
     const currentDocument = activeDocument.value;
@@ -261,36 +248,64 @@ watchEffect(() => {
 });
 
 let unlistenLanguageMenuEvent: (() => void) | null = null;
+let unlistenThemeMenuEvent: (() => void) | null = null;
 let unlistenAppMenuEvent: (() => void) | null = null;
+let colorSchemeMedia: MediaQueryList | null = null;
+let handleColorSchemeChange: ((event: MediaQueryListEvent) => void) | null = null;
 
 onMounted(async () => {
     if (!isTauri) {
         applyLocaleMode(localeMode.value);
+        applyCurrentTheme();
         return;
     }
 
     const savedLocaleMode = await invoke<LocaleMode>("get_saved_locale_mode");
+    const savedThemeMode = await invoke<ThemeMode>("get_saved_theme_mode");
     localeMode.value = savedLocaleMode;
+    themeMode.value = savedThemeMode;
     const resolvedLocale = applyLocaleMode(savedLocaleMode);
+    applyCurrentTheme();
 
-    unlistenLanguageMenuEvent = await listen<LocaleMode>("language-menu-selected", (event) => {
+    unlistenLanguageMenuEvent = await listen<LocaleMode>(LOCALE_MENU_EVENT, (event) => {
         if (event.payload === "auto" || event.payload === "en" || event.payload === "zh-CN") {
             localeMode.value = event.payload;
         }
     });
 
-    unlistenAppMenuEvent = await listen<string>(MENU_EVENT, (event) => {
+    unlistenThemeMenuEvent = await listen<ThemeMode>(THEME_MENU_EVENT, (event) => {
+        if (event.payload === "system" || event.payload === "light" || event.payload === "dark") {
+            themeMode.value = event.payload;
+        }
+    });
+
+    unlistenAppMenuEvent = await listen<string>(APP_MENU_EVENT, (event) => {
         void handleMenuAction(event.payload);
     });
 
-    await syncMenuState(localeMode.value, resolvedLocale);
+    if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+        colorSchemeMedia = window.matchMedia("(prefers-color-scheme: dark)");
+        handleColorSchemeChange = () => {
+            if (themeMode.value === "system") {
+                applyCurrentTheme();
+            }
+        };
+        colorSchemeMedia.addEventListener("change", handleColorSchemeChange);
+    }
+
+    await syncAppState(resolvedLocale);
+    await invoke("notify_frontend_ready");
 });
 
 onBeforeUnmount(() => {
     unlistenLanguageMenuEvent?.();
+    unlistenThemeMenuEvent?.();
     unlistenAppMenuEvent?.();
-});
 
+    if (colorSchemeMedia && handleColorSchemeChange) {
+        colorSchemeMedia.removeEventListener("change", handleColorSchemeChange);
+    }
+});
 </script>
 
 <style scoped>
@@ -299,17 +314,49 @@ onBeforeUnmount(() => {
 :global(#app) {
     margin: 0;
     min-height: 100%;
-    background: #161a21;
+    background: var(--window-bg);
+}
+
+:global(:root) {
+    --window-bg: #161a21;
+    --shell-bg: linear-gradient(180deg, #1e232d 0%, #161a21 100%);
+    --shell-overlay: linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 60%);
+    --text-main: #e9edf5;
+    --tabs-bg: #1a1f28;
+    --tabs-border: #343b48;
+    --tab-text: #b8c0cf;
+    --tab-active-bg: #242b36;
+    --tab-active-text: #ffffff;
+    --tab-accent: #d7a44c;
+    --tab-close: #8993a7;
+    --editor-border: #394252;
+    --editor-bg: #0e1117;
+    --focus-outline: #d7a44c;
+}
+
+:global(html[data-theme="light"]) {
+    --window-bg: #f4f1ea;
+    --shell-bg: linear-gradient(180deg, #f9f7f1 0%, #ece7dd 100%);
+    --shell-overlay: linear-gradient(135deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0) 60%);
+    --text-main: #2a241e;
+    --tabs-bg: #ded7ca;
+    --tabs-border: #b8ae9f;
+    --tab-text: #605545;
+    --tab-active-bg: #fffdf8;
+    --tab-active-text: #1f1a17;
+    --tab-accent: #9f6b20;
+    --tab-close: #7a705f;
+    --editor-border: #c8beaf;
+    --editor-bg: #fffdf8;
+    --focus-outline: #9f6b20;
 }
 
 .app-shell {
     display: flex;
     min-height: 100vh;
     flex-direction: column;
-    background:
-        linear-gradient(180deg, #1e232d 0%, #161a21 100%),
-        linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 60%);
-    color: #e9edf5;
+    background: var(--shell-overlay), var(--shell-bg);
+    color: var(--text-main);
     font-family: "Segoe UI", sans-serif;
 }
 
@@ -317,9 +364,9 @@ onBeforeUnmount(() => {
     display: flex;
     gap: 2px;
     overflow-x: auto;
-    border-bottom: 1px solid #343b48;
+    border-bottom: 1px solid var(--tabs-border);
     padding: 0 12px;
-    background: #1a1f28;
+    background: var(--tabs-bg);
 }
 
 .tab-button {
@@ -331,15 +378,15 @@ onBeforeUnmount(() => {
     border-radius: 10px 10px 0 0;
     padding: 10px 14px 9px;
     background: transparent;
-    color: #b8c0cf;
-    font: inherit;
+    color: var(--tab-text);
+    font: 13px/1.2 "Segoe UI", sans-serif;
     cursor: pointer;
 }
 
 .tab-button.active {
-    background: #242b36;
-    color: #ffffff;
-    box-shadow: inset 0 -2px 0 #d7a44c;
+    background: var(--tab-active-bg);
+    color: var(--tab-active-text);
+    box-shadow: inset 0 -2px 0 var(--tab-accent);
 }
 
 .tab-title {
@@ -350,13 +397,13 @@ onBeforeUnmount(() => {
 }
 
 .tab-close {
-    color: #8993a7;
-    font-size: 16px;
+    color: var(--tab-close);
+    font-size: 13px;
     line-height: 1;
 }
 
 .tab-button:hover .tab-close {
-    color: #ffffff;
+    color: var(--tab-active-text);
 }
 
 .editor-workspace {
@@ -364,62 +411,23 @@ onBeforeUnmount(() => {
     min-height: 0;
     flex: 1;
     flex-direction: column;
-    padding: 18px;
-    gap: 16px;
-}
-
-.document-meta {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-}
-
-.document-meta h1 {
-    margin: 0 0 6px;
-    font-size: 22px;
-    font-weight: 600;
-}
-
-.document-meta p {
-    margin: 0;
-    color: #98a2b7;
-}
-
-.document-state {
-    border: 1px solid #495266;
-    border-radius: 999px;
-    padding: 8px 12px;
-    background: rgba(255, 255, 255, 0.04);
-    font-size: 13px;
-    white-space: nowrap;
+    padding: 8px;
 }
 
 .editor-textarea {
     min-height: 0;
     flex: 1;
-    border: 1px solid #394252;
-    border-radius: 16px;
-    padding: 18px 20px;
-    background: #0e1117;
-    color: inherit;
+    border: 1px solid var(--editor-border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    background: var(--editor-bg);
+    color: var(--text-main);
     font: 16px/1.75 "Cascadia Code", "Consolas", monospace;
     resize: none;
 }
 
 .editor-textarea:focus {
-    outline: 2px solid #d7a44c;
+    outline: 2px solid var(--focus-outline);
     outline-offset: 2px;
-}
-
-@media (max-width: 720px) {
-    .document-meta {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .document-state {
-        white-space: normal;
-    }
 }
 </style>
