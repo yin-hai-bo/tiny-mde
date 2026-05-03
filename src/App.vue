@@ -11,8 +11,16 @@
                 :aria-selected="documentItem.id === activeDocumentId"
                 @click="activateDocument(documentItem.id)"
             >
+                <span v-if="documentItem.dirty" class="tab-dirty-indicator" aria-hidden="true" />
                 <span class="tab-title">{{ formatTabTitle(documentItem) }}</span>
-                <span class="tab-close" @click.stop="closeDocument(documentItem.id)">x</span>
+                <span
+                    class="tab-close"
+                    role="button"
+                    aria-label="Close tab"
+                    @click.stop="closeDocument(documentItem.id)"
+                >
+                    <span class="tab-close-icon" aria-hidden="true" />
+                </span>
             </button>
         </div>
 
@@ -50,7 +58,9 @@ type DocumentTab = {
     name: string;
     path: string | null;
     content: string;
+    savedContent: string;
     dirty: boolean;
+    awaitingInitialEditorSync: boolean;
 };
 
 type OpenedDocument = {
@@ -141,11 +151,18 @@ function createDocument(partial?: Partial<DocumentTab>) {
         name: partial?.name ?? formatUntitledName(),
         path: partial?.path ?? null,
         content: partial?.content ?? "",
+        savedContent: partial?.savedContent ?? partial?.content ?? "",
         dirty: partial?.dirty ?? false,
+        awaitingInitialEditorSync: partial?.awaitingInitialEditorSync ?? true,
     } satisfies DocumentTab;
 }
 
 function activateDocument(id: string) {
+    const targetDocument = documents.value.find((documentItem) => documentItem.id === id);
+    if (targetDocument) {
+        targetDocument.awaitingInitialEditorSync = true;
+    }
+
     activeDocumentId.value = id;
 }
 
@@ -161,12 +178,24 @@ function updateActiveContent(nextMarkdown: string) {
         return;
     }
 
+    if (currentDocument.awaitingInitialEditorSync) {
+        currentDocument.content = nextMarkdown;
+        currentDocument.awaitingInitialEditorSync = false;
+        if (!currentDocument.dirty) {
+            currentDocument.savedContent = nextMarkdown;
+            currentDocument.dirty = false;
+        } else {
+            currentDocument.dirty = nextMarkdown !== currentDocument.savedContent;
+        }
+        return;
+    }
+
     currentDocument.content = nextMarkdown;
-    currentDocument.dirty = true;
+    currentDocument.dirty = nextMarkdown !== currentDocument.savedContent;
 }
 
 function formatTabTitle(documentItem: DocumentTab) {
-    return documentItem.dirty ? `* ${documentItem.name}` : documentItem.name;
+    return documentItem.name;
 }
 
 function closeDocument(id: string) {
@@ -183,7 +212,11 @@ function closeDocument(id: string) {
     documents.value = nextDocuments;
 
     if (activeDocumentId.value === id) {
-        activeDocumentId.value = nextDocuments.at(-1)?.id ?? "";
+        const nextActiveDocument = nextDocuments.at(-1) ?? null;
+        if (nextActiveDocument) {
+            nextActiveDocument.awaitingInitialEditorSync = true;
+        }
+        activeDocumentId.value = nextActiveDocument?.id ?? "";
     }
 }
 
@@ -208,7 +241,9 @@ async function openDocuments() {
         if (existingDocument) {
             existingDocument.name = openedDocument.name;
             existingDocument.content = openedDocument.content;
+            existingDocument.savedContent = openedDocument.content;
             existingDocument.dirty = false;
+            existingDocument.awaitingInitialEditorSync = true;
             nextActiveId ||= existingDocument.id;
             continue;
         }
@@ -246,6 +281,7 @@ async function saveActiveDocument(saveAs: boolean) {
 
     currentDocument.name = savedDocument.name;
     currentDocument.path = savedDocument.path;
+    currentDocument.savedContent = currentDocument.content;
     currentDocument.dirty = false;
 }
 
@@ -440,14 +476,50 @@ onBeforeUnmount(() => {
     white-space: nowrap;
 }
 
+.tab-dirty-indicator {
+    width: 8px;
+    height: 8px;
+    flex: 0 0 auto;
+    border-radius: 999px;
+    background: currentColor;
+    opacity: 0.9;
+}
+
 .tab-close {
+    position: relative;
+    display: inline-flex;
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
     color: var(--tab-close);
-    font-size: 13px;
-    line-height: 1;
+    line-height: 0;
 }
 
 .tab-button:hover .tab-close {
     color: var(--tab-active-text);
+}
+
+.tab-close-icon::before,
+.tab-close-icon::after {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 9px;
+    height: 1.5px;
+    border-radius: 999px;
+    background: currentColor;
+    content: "";
+    transform-origin: center;
+}
+
+.tab-close-icon::before {
+    transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.tab-close-icon::after {
+    transform: translate(-50%, -50%) rotate(-45deg);
 }
 
 .editor-workspace {
