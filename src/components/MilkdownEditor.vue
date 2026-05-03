@@ -114,8 +114,11 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .milkdown-host {
-    min-height: 0;
-    flex: 1;
-    overflow: hidden;
+    /* The editor host grows with content but must not become a second
+       vertical scroll container. */
+    min-height: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+    overflow-y: hidden;
 }
 </style>

@@ -26,13 +26,15 @@
 
         <section v-if="activeDocument" class="editor-workspace">
             <section class="pane">
-                <MilkdownEditor
-                    :key="activeDocument.id"
-                    :model-value="activeDocument.content"
-                    :placeholder="t('editor.placeholder')"
-                    @edited="markActiveDocumentDirty"
-                    @update:model-value="updateActiveContent"
-                />
+                <div class="editor-scroll">
+                    <MilkdownEditor
+                        :key="activeDocument.id"
+                        :model-value="activeDocument.content"
+                        :placeholder="t('editor.placeholder')"
+                        @edited="markActiveDocumentDirty"
+                        @update:model-value="updateActiveContent"
+                    />
+                </div>
             </section>
         </section>
     </main>
@@ -549,5 +551,14 @@ onBeforeUnmount(() => {
     border: 1px solid var(--panel-border);
     border-radius: 10px;
     background: var(--panel-bg);
+}
+
+.editor-scroll {
+    /* Keep vertical scrolling at the app shell level so tabs stay fixed
+       and editor hit-testing stays aligned. */
+    min-height: 0;
+    flex: 1;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 </style>
