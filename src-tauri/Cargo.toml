@@ -9,3 +9,6 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
+sys-locale = "0.3"
