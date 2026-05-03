@@ -51,21 +51,19 @@ html[data-theme="light"] {
 }
 
 html[data-font-mode="serif"] {
-    --app-font-ui: "Georgia", "Noto Serif SC", "Source Han Serif SC", serif;
     --app-font-editor: "Georgia", "Noto Serif SC", "Source Han Serif SC", serif;
     --app-font-heading: "Georgia", "Noto Serif SC", "Source Han Serif SC", serif;
 }
 
 html[data-font-mode="rounded"] {
-    --app-font-ui: "Trebuchet MS", "Microsoft YaHei UI", "Segoe UI", sans-serif;
     --app-font-editor: "Trebuchet MS", "Microsoft YaHei UI", "Segoe UI", sans-serif;
     --app-font-heading: "Trebuchet MS", "Microsoft YaHei UI", "Segoe UI", sans-serif;
 }
 
 html[data-font-mode="mono"] {
-    --app-font-ui: "Cascadia Mono", "Cascadia Code", "Consolas", monospace;
     --app-font-editor: "Cascadia Mono", "Cascadia Code", "Consolas", monospace;
     --app-font-heading: "Cascadia Mono", "Cascadia Code", "Consolas", monospace;
+    --app-font-code: "Cascadia Mono", "Cascadia Code", "Consolas", monospace;
 }
 
 .milkdown {
