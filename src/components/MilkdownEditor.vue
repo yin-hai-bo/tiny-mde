@@ -13,12 +13,14 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+    edited: [];
     "update:modelValue": [value: string];
 }>();
 
 const rootElement = ref<HTMLDivElement | null>(null);
 let crepe: Crepe | null = null;
 let lastSyncedMarkdown = props.modelValue;
+let suppressNextInputEvent = false;
 
 async function destroyEditor() {
     if (!crepe) {
@@ -35,6 +37,8 @@ async function createEditor(initialMarkdown: string) {
     if (!rootElement.value) {
         return;
     }
+
+    suppressNextInputEvent = true;
 
     const instance = new Crepe({
         root: rootElement.value,
@@ -64,6 +68,15 @@ async function rebuildEditor(markdown: string) {
     await createEditor(markdown);
 }
 
+function handleEditorMutation() {
+    if (suppressNextInputEvent) {
+        suppressNextInputEvent = false;
+        return;
+    }
+
+    emit("edited");
+}
+
 watch(
     () => props.modelValue,
     async (nextValue) => {
@@ -87,10 +100,14 @@ watch(
 );
 
 onMounted(async () => {
+    rootElement.value?.addEventListener("beforeinput", handleEditorMutation);
+    rootElement.value?.addEventListener("input", handleEditorMutation);
     await createEditor(props.modelValue);
 });
 
 onBeforeUnmount(() => {
+    rootElement.value?.removeEventListener("beforeinput", handleEditorMutation);
+    rootElement.value?.removeEventListener("input", handleEditorMutation);
     void destroyEditor();
 });
 </script>
@@ -99,6 +116,6 @@ onBeforeUnmount(() => {
 .milkdown-host {
     min-height: 0;
     flex: 1;
-    overflow: auto;
+    overflow: hidden;
 }
 </style>

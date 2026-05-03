@@ -30,6 +30,7 @@
                     :key="activeDocument.id"
                     :model-value="activeDocument.content"
                     :placeholder="t('editor.placeholder')"
+                    @edited="markActiveDocumentDirty"
                     @update:model-value="updateActiveContent"
                 />
             </section>
@@ -60,7 +61,6 @@ type DocumentTab = {
     content: string;
     savedContent: string;
     dirty: boolean;
-    awaitingInitialEditorSync: boolean;
 };
 
 type OpenedDocument = {
@@ -153,16 +153,10 @@ function createDocument(partial?: Partial<DocumentTab>) {
         content: partial?.content ?? "",
         savedContent: partial?.savedContent ?? partial?.content ?? "",
         dirty: partial?.dirty ?? false,
-        awaitingInitialEditorSync: partial?.awaitingInitialEditorSync ?? true,
     } satisfies DocumentTab;
 }
 
 function activateDocument(id: string) {
-    const targetDocument = documents.value.find((documentItem) => documentItem.id === id);
-    if (targetDocument) {
-        targetDocument.awaitingInitialEditorSync = true;
-    }
-
     activeDocumentId.value = id;
 }
 
@@ -172,21 +166,20 @@ function createNewDocument() {
     activeDocumentId.value = documentItem.id;
 }
 
-function updateActiveContent(nextMarkdown: string) {
+function markActiveDocumentDirty() {
     const currentDocument = activeDocument.value;
     if (!currentDocument) {
         return;
     }
 
-    if (currentDocument.awaitingInitialEditorSync) {
-        currentDocument.content = nextMarkdown;
-        currentDocument.awaitingInitialEditorSync = false;
-        if (!currentDocument.dirty) {
-            currentDocument.savedContent = nextMarkdown;
-            currentDocument.dirty = false;
-        } else {
-            currentDocument.dirty = nextMarkdown !== currentDocument.savedContent;
-        }
+    if (currentDocument.content === currentDocument.savedContent) {
+        currentDocument.dirty = true;
+    }
+}
+
+function updateActiveContent(nextMarkdown: string) {
+    const currentDocument = activeDocument.value;
+    if (!currentDocument) {
         return;
     }
 
@@ -212,11 +205,7 @@ function closeDocument(id: string) {
     documents.value = nextDocuments;
 
     if (activeDocumentId.value === id) {
-        const nextActiveDocument = nextDocuments.at(-1) ?? null;
-        if (nextActiveDocument) {
-            nextActiveDocument.awaitingInitialEditorSync = true;
-        }
-        activeDocumentId.value = nextActiveDocument?.id ?? "";
+        activeDocumentId.value = nextDocuments.at(-1)?.id ?? "";
     }
 }
 
@@ -243,7 +232,6 @@ async function openDocuments() {
             existingDocument.content = openedDocument.content;
             existingDocument.savedContent = openedDocument.content;
             existingDocument.dirty = false;
-            existingDocument.awaitingInitialEditorSync = true;
             nextActiveId ||= existingDocument.id;
             continue;
         }
@@ -283,6 +271,16 @@ async function saveActiveDocument(saveAs: boolean) {
     currentDocument.path = savedDocument.path;
     currentDocument.savedContent = currentDocument.content;
     currentDocument.dirty = false;
+}
+
+async function handleWindowKeydown(event: KeyboardEvent) {
+    const isSaveKey = event.key.toLowerCase() === "s";
+    if (!isSaveKey || !(event.ctrlKey || event.metaKey) || event.altKey) {
+        return;
+    }
+
+    event.preventDefault();
+    await saveActiveDocument(event.shiftKey);
 }
 
 async function handleMenuAction(actionId: string) {
@@ -404,6 +402,10 @@ onMounted(async () => {
         void handleMenuAction(event.payload);
     });
 
+    if (typeof window !== "undefined") {
+        window.addEventListener("keydown", handleWindowKeydown);
+    }
+
     if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
         colorSchemeMedia = window.matchMedia("(prefers-color-scheme: dark)");
         handleColorSchemeChange = () => {
@@ -427,14 +429,20 @@ onBeforeUnmount(() => {
     if (colorSchemeMedia && handleColorSchemeChange) {
         colorSchemeMedia.removeEventListener("change", handleColorSchemeChange);
     }
+
+    if (typeof window !== "undefined") {
+        window.removeEventListener("keydown", handleWindowKeydown);
+    }
 });
 </script>
 
 <style scoped>
 .app-shell {
     display: flex;
-    min-height: 100vh;
+    height: 100vh;
+    min-height: 0;
     flex-direction: column;
+    overflow: hidden;
     background: var(--shell-overlay), var(--shell-bg);
     color: var(--text-main);
     font-family: var(--app-font-ui);
@@ -442,8 +450,10 @@ onBeforeUnmount(() => {
 
 .tabs {
     display: flex;
+    flex: 0 0 auto;
     gap: 2px;
     overflow-x: auto;
+    overflow-y: hidden;
     border-bottom: 1px solid var(--tabs-border);
     padding: 0 12px;
     background: var(--tabs-bg);
@@ -526,6 +536,7 @@ onBeforeUnmount(() => {
     display: flex;
     min-height: 0;
     flex: 1;
+    overflow: hidden;
     padding: 8px;
 }
 
