@@ -35,8 +35,10 @@ import { listen } from "@tauri-apps/api/event";
 import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import {
+    applyFontMode,
     applyLocaleMode,
     applyThemeMode,
+    type FontMode,
     type LocaleCode,
     type LocaleMode,
     type ThemeMode,
@@ -62,16 +64,25 @@ type SavedDocument = {
     path: string;
 };
 
+type TypographyStylesheet = {
+    path: string;
+    content: string;
+};
+
 const LOCALE_MENU_EVENT = "language-menu-selected";
 const THEME_MENU_EVENT = "theme-menu-selected";
+const FONT_MENU_EVENT = "font-menu-selected";
 const APP_MENU_EVENT = "app-menu-selected";
+const TYPOGRAPHY_STYLE_TAG_ID = "custom-typography-stylesheet";
 const { t } = useI18n();
 const localeMode = ref<LocaleMode>("auto");
 const themeMode = ref<ThemeMode>("system");
+const fontMode = ref<FontMode>("system");
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const documents = ref<DocumentTab[]>([]);
 const activeDocumentId = ref<string>("");
 const untitledCounter = ref(1);
+const typographyStylesheetPath = ref<string | null>(null);
 
 const activeDocument = computed(
     () => documents.value.find((documentItem) => documentItem.id === activeDocumentId.value) ?? null
@@ -86,11 +97,32 @@ function syncAppState(localeCode: LocaleCode) {
         localeMode: localeMode.value,
         locale: localeCode,
         themeMode: themeMode.value,
+        fontMode: fontMode.value,
     });
 }
 
 function applyCurrentTheme() {
     return applyThemeMode(themeMode.value);
+}
+
+function applyTypographyStylesheet(cssContent: string) {
+    if (typeof document === "undefined") {
+        return;
+    }
+
+    const existingTag = document.getElementById(TYPOGRAPHY_STYLE_TAG_ID);
+    if (!cssContent.trim()) {
+        existingTag?.remove();
+        return;
+    }
+
+    const styleTag = existingTag ?? document.createElement("style");
+    styleTag.id = TYPOGRAPHY_STYLE_TAG_ID;
+    styleTag.textContent = cssContent;
+
+    if (!existingTag) {
+        document.head.append(styleTag);
+    }
 }
 
 function makeDocumentId() {
@@ -231,14 +263,45 @@ async function handleMenuAction(actionId: string) {
         case "file_save_as":
             await saveActiveDocument(true);
             break;
+        case "preferences_select_typography_css":
+            await selectTypographyStylesheet();
+            break;
+        case "preferences_clear_typography_css":
+            await clearTypographyStylesheet();
+            break;
         default:
             break;
     }
 }
 
-watch([localeMode, themeMode], ([nextLocaleMode]) => {
+async function selectTypographyStylesheet() {
+    if (!isTauri) {
+        return;
+    }
+
+    const stylesheet = await invoke<TypographyStylesheet | null>("select_typography_stylesheet");
+    if (!stylesheet) {
+        return;
+    }
+
+    typographyStylesheetPath.value = stylesheet.path;
+    applyTypographyStylesheet(stylesheet.content);
+}
+
+async function clearTypographyStylesheet() {
+    if (!isTauri) {
+        return;
+    }
+
+    await invoke("clear_typography_stylesheet");
+    typographyStylesheetPath.value = null;
+    applyTypographyStylesheet("");
+}
+
+watch([localeMode, themeMode, fontMode], ([nextLocaleMode]) => {
     const resolvedLocale = applyLocaleMode(nextLocaleMode);
     applyCurrentTheme();
+    applyFontMode(fontMode.value);
     void syncAppState(resolvedLocale);
 });
 
@@ -251,6 +314,7 @@ watchEffect(() => {
 
 let unlistenLanguageMenuEvent: (() => void) | null = null;
 let unlistenThemeMenuEvent: (() => void) | null = null;
+let unlistenFontMenuEvent: (() => void) | null = null;
 let unlistenAppMenuEvent: (() => void) | null = null;
 let colorSchemeMedia: MediaQueryList | null = null;
 let handleColorSchemeChange: ((event: MediaQueryListEvent) => void) | null = null;
@@ -259,15 +323,23 @@ onMounted(async () => {
     if (!isTauri) {
         applyLocaleMode(localeMode.value);
         applyCurrentTheme();
+        applyFontMode(fontMode.value);
         return;
     }
 
     const savedLocaleMode = await invoke<LocaleMode>("get_saved_locale_mode");
     const savedThemeMode = await invoke<ThemeMode>("get_saved_theme_mode");
+    const savedFontMode = await invoke<FontMode>("get_saved_font_mode");
+    const savedTypographyStylesheet =
+        await invoke<TypographyStylesheet | null>("get_saved_typography_stylesheet");
     localeMode.value = savedLocaleMode;
     themeMode.value = savedThemeMode;
+    fontMode.value = savedFontMode;
     const resolvedLocale = applyLocaleMode(savedLocaleMode);
     applyCurrentTheme();
+    applyFontMode(savedFontMode);
+    typographyStylesheetPath.value = savedTypographyStylesheet?.path ?? null;
+    applyTypographyStylesheet(savedTypographyStylesheet?.content ?? "");
 
     unlistenLanguageMenuEvent = await listen<LocaleMode>(LOCALE_MENU_EVENT, (event) => {
         if (event.payload === "auto" || event.payload === "en" || event.payload === "zh-CN") {
@@ -278,6 +350,17 @@ onMounted(async () => {
     unlistenThemeMenuEvent = await listen<ThemeMode>(THEME_MENU_EVENT, (event) => {
         if (event.payload === "system" || event.payload === "light" || event.payload === "dark") {
             themeMode.value = event.payload;
+        }
+    });
+
+    unlistenFontMenuEvent = await listen<FontMode>(FONT_MENU_EVENT, (event) => {
+        if (
+            event.payload === "system" ||
+            event.payload === "serif" ||
+            event.payload === "rounded" ||
+            event.payload === "mono"
+        ) {
+            fontMode.value = event.payload;
         }
     });
 
@@ -302,6 +385,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
     unlistenLanguageMenuEvent?.();
     unlistenThemeMenuEvent?.();
+    unlistenFontMenuEvent?.();
     unlistenAppMenuEvent?.();
 
     if (colorSchemeMedia && handleColorSchemeChange) {
@@ -311,112 +395,13 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-:global(html),
-:global(body),
-:global(#app) {
-    margin: 0;
-    min-height: 100%;
-    background: var(--window-bg);
-}
-
-:global(:root) {
-    --window-bg: #161a21;
-    --shell-bg: linear-gradient(180deg, #1e232d 0%, #161a21 100%);
-    --shell-overlay: linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 60%);
-    --text-main: #e9edf5;
-    --text-muted: #a7b0c0;
-    --tabs-bg: #1a1f28;
-    --tabs-border: #343b48;
-    --tab-text: #b8c0cf;
-    --tab-active-bg: #242b36;
-    --tab-active-text: #ffffff;
-    --tab-accent: #d7a44c;
-    --tab-close: #8993a7;
-    --panel-border: #394252;
-    --panel-bg: #0e1117;
-    --panel-header-bg: #181d26;
-    --panel-header-border: #2e3746;
-    --editor-toolbar-bg: #181d26;
-}
-
-:global(html[data-theme="light"]) {
-    --window-bg: #f4f1ea;
-    --shell-bg: linear-gradient(180deg, #f9f7f1 0%, #ece7dd 100%);
-    --shell-overlay: linear-gradient(135deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0) 60%);
-    --text-main: #2a241e;
-    --text-muted: #6a6158;
-    --tabs-bg: #ded7ca;
-    --tabs-border: #b8ae9f;
-    --tab-text: #605545;
-    --tab-active-bg: #fffdf8;
-    --tab-active-text: #1f1a17;
-    --tab-accent: #9f6b20;
-    --tab-close: #7a705f;
-    --panel-border: #c8beaf;
-    --panel-bg: #fffdf8;
-    --panel-header-bg: #f1ebdf;
-    --panel-header-border: #d7cdbf;
-    --editor-toolbar-bg: #f1ebdf;
-}
-
-:global(.milkdown) {
-    --crepe-color-background: var(--panel-bg);
-    --crepe-color-on-background: var(--text-main);
-    --crepe-color-surface: var(--panel-bg);
-    --crepe-color-surface-low: var(--panel-header-bg);
-    --crepe-color-on-surface: var(--text-main);
-    --crepe-color-on-surface-variant: var(--text-muted);
-    --crepe-color-outline: var(--panel-border);
-    --crepe-color-primary: var(--text-main);
-    --crepe-color-secondary: var(--panel-header-border);
-    --crepe-color-on-secondary: var(--text-main);
-    --crepe-color-inverse: var(--tab-active-bg);
-    --crepe-color-on-inverse: var(--tab-active-text);
-    --crepe-color-inline-code: #8dc4ff;
-    --crepe-color-error: #d24b4b;
-    --crepe-color-hover: var(--panel-header-bg);
-    --crepe-color-selected: var(--tabs-bg);
-    --crepe-color-inline-area: rgba(255, 255, 255, 0.08);
-    --crepe-font-title: "Segoe UI", sans-serif;
-    --crepe-font-default: "Segoe UI", sans-serif;
-    --crepe-font-code: "Cascadia Code", "Consolas", monospace;
-    height: 100%;
-    background: var(--panel-bg);
-    color: var(--text-main);
-}
-
-:global(html[data-theme="light"] .milkdown) {
-    --crepe-color-inline-code: #0b62b3;
-    --crepe-color-inline-area: rgba(74, 58, 38, 0.08);
-}
-
-:global(.milkdown .editor) {
-    height: 100%;
-}
-
-:global(.milkdown .ProseMirror) {
-    min-height: 100%;
-    padding: 12px 14px 24px;
-    color: var(--text-main);
-}
-
-:global(.milkdown .toolbar),
-:global(.milkdown .milkdown-toolbar) {
-    background: var(--editor-toolbar-bg);
-}
-
-:global(.milkdown .toolbar button),
-:global(.milkdown .milkdown-toolbar button) {
-    color: var(--text-main);
-}
-
 .app-shell {
     display: flex;
     min-height: 100vh;
     flex-direction: column;
     background: var(--shell-overlay), var(--shell-bg);
     color: var(--text-main);
-    font-family: "Segoe UI", sans-serif;
+    font-family: var(--app-font-ui);
 }
 
 .tabs {
@@ -438,7 +423,7 @@ onBeforeUnmount(() => {
     padding: 10px 14px 9px;
     background: transparent;
     color: var(--tab-text);
-    font: 13px/1.2 "Segoe UI", sans-serif;
+    font: 13px/1.2 var(--app-font-ui);
     cursor: pointer;
 }
 

@@ -3,6 +3,7 @@ import { createI18n } from "vue-i18n";
 export type LocaleCode = "en" | "zh-CN";
 export type LocaleMode = "auto" | LocaleCode;
 export type ThemeMode = "system" | "light" | "dark";
+export type FontMode = "system" | "serif" | "rounded" | "mono";
 export type ResolvedTheme = "light" | "dark";
 
 const DEFAULT_LOCALE: LocaleCode = "en";
@@ -13,7 +14,6 @@ const messages = {
             name: "Tiny Markdown Editor",
         },
         editor: {
-            editor: "Editor",
             placeholder: "Write markdown here...",
         },
         tabs: {
@@ -27,7 +27,6 @@ const messages = {
             name: "Tiny Markdown Editor",
         },
         editor: {
-            editor: "编辑",
             placeholder: "在这里输入 Markdown...",
         },
         tabs: {
@@ -93,4 +92,12 @@ export function applyThemeMode(mode: ThemeMode) {
     }
 
     return theme;
+}
+
+export function applyFontMode(mode: FontMode) {
+    if (typeof document !== "undefined") {
+        document.documentElement.dataset.fontMode = mode;
+    }
+
+    return mode;
 }

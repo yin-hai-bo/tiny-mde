@@ -1,5 +1,5 @@
 <template>
-    <div ref="rootElement" class="milkdown-host" />
+    <div ref="rootElement" class="milkdown-host markdown-typography" />
 </template>
 
 <script setup lang="ts">

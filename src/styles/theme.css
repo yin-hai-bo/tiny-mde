@@ -1,0 +1,124 @@
+:root {
+    --window-bg: #161a21;
+    --shell-bg: linear-gradient(180deg, #1e232d 0%, #161a21 100%);
+    --shell-overlay: linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 60%);
+    --text-main: #e9edf5;
+    --text-muted: #a7b0c0;
+    --tabs-bg: #1a1f28;
+    --tabs-border: #343b48;
+    --tab-text: #b8c0cf;
+    --tab-active-bg: #242b36;
+    --tab-active-text: #ffffff;
+    --tab-accent: #d7a44c;
+    --tab-close: #8993a7;
+    --panel-border: #394252;
+    --panel-bg: #0e1117;
+    --panel-header-bg: #181d26;
+    --panel-header-border: #2e3746;
+    --editor-toolbar-bg: #181d26;
+    --app-font-ui: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+    --app-font-editor: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+    --app-font-heading: "Segoe UI Semibold", "Microsoft YaHei UI", sans-serif;
+    --app-font-code: "Cascadia Code", "Consolas", monospace;
+}
+
+html,
+body,
+#app {
+    margin: 0;
+    min-height: 100%;
+    background: var(--window-bg);
+}
+
+html[data-theme="light"] {
+    --window-bg: #f4f1ea;
+    --shell-bg: linear-gradient(180deg, #f9f7f1 0%, #ece7dd 100%);
+    --shell-overlay: linear-gradient(135deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0) 60%);
+    --text-main: #2a241e;
+    --text-muted: #6a6158;
+    --tabs-bg: #ded7ca;
+    --tabs-border: #b8ae9f;
+    --tab-text: #605545;
+    --tab-active-bg: #fffdf8;
+    --tab-active-text: #1f1a17;
+    --tab-accent: #9f6b20;
+    --tab-close: #7a705f;
+    --panel-border: #c8beaf;
+    --panel-bg: #fffdf8;
+    --panel-header-bg: #f1ebdf;
+    --panel-header-border: #d7cdbf;
+    --editor-toolbar-bg: #f1ebdf;
+}
+
+html[data-font-mode="serif"] {
+    --app-font-ui: "Georgia", "Noto Serif SC", "Source Han Serif SC", serif;
+    --app-font-editor: "Georgia", "Noto Serif SC", "Source Han Serif SC", serif;
+    --app-font-heading: "Georgia", "Noto Serif SC", "Source Han Serif SC", serif;
+}
+
+html[data-font-mode="rounded"] {
+    --app-font-ui: "Trebuchet MS", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    --app-font-editor: "Trebuchet MS", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    --app-font-heading: "Trebuchet MS", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+}
+
+html[data-font-mode="mono"] {
+    --app-font-ui: "Cascadia Mono", "Cascadia Code", "Consolas", monospace;
+    --app-font-editor: "Cascadia Mono", "Cascadia Code", "Consolas", monospace;
+    --app-font-heading: "Cascadia Mono", "Cascadia Code", "Consolas", monospace;
+}
+
+.milkdown {
+    --crepe-color-background: var(--panel-bg);
+    --crepe-color-on-background: var(--text-main);
+    --crepe-color-surface: var(--panel-bg);
+    --crepe-color-surface-low: var(--panel-header-bg);
+    --crepe-color-on-surface: var(--text-main);
+    --crepe-color-on-surface-variant: var(--text-muted);
+    --crepe-color-outline: var(--panel-border);
+    --crepe-color-primary: var(--text-main);
+    --crepe-color-secondary: var(--panel-header-border);
+    --crepe-color-on-secondary: var(--text-main);
+    --crepe-color-inverse: var(--tab-active-bg);
+    --crepe-color-on-inverse: var(--tab-active-text);
+    --crepe-color-inline-code: #8dc4ff;
+    --crepe-color-error: #d24b4b;
+    --crepe-color-hover: var(--panel-header-bg);
+    --crepe-color-selected: var(--tabs-bg);
+    --crepe-color-inline-area: rgba(255, 255, 255, 0.08);
+    --crepe-font-title: var(--app-font-heading);
+    --crepe-font-default: var(--app-font-editor);
+    --crepe-font-code: var(--app-font-code);
+    height: 100%;
+    background: var(--panel-bg);
+    color: var(--text-main);
+}
+
+html[data-theme="light"] .milkdown {
+    --crepe-color-inline-code: #0b62b3;
+    --crepe-color-inline-area: rgba(74, 58, 38, 0.08);
+}
+
+.milkdown .editor {
+    height: 100%;
+}
+
+.milkdown .ProseMirror {
+    min-height: 100%;
+    padding: 12px 14px 24px;
+    color: var(--text-main);
+}
+
+.milkdown .toolbar,
+.milkdown .milkdown-toolbar {
+    background: var(--editor-toolbar-bg);
+}
+
+.milkdown .toolbar button,
+.milkdown .milkdown-toolbar button {
+    color: var(--text-main);
+}
+
+.markdown-typography {
+    font-family: var(--app-font-editor);
+}
