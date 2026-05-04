@@ -43,6 +43,9 @@ async function createEditor(initialMarkdown: string) {
     const instance = new Crepe({
         root: rootElement.value,
         defaultValue: initialMarkdown,
+        features: {
+            [Crepe.Feature.BlockEdit]: false,
+        },
         featureConfigs: {
             [Crepe.Feature.Placeholder]: {
                 text: props.placeholder,

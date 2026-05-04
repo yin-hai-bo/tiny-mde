@@ -16,10 +16,13 @@
     --panel-header-bg: #181d26;
     --panel-header-border: #2e3746;
     --editor-toolbar-bg: #181d26;
+    --code-block-bg: #141922;
+    --code-block-border: #3c4658;
+    --code-block-shadow: 0 10px 26px rgba(0, 0, 0, 0.24);
     --app-font-ui: "Segoe UI", "Microsoft YaHei UI", sans-serif;
     --app-font-editor: "Segoe UI", "Microsoft YaHei UI", sans-serif;
     --app-font-heading: "Segoe UI Semibold", "Microsoft YaHei UI", sans-serif;
-    --app-font-code: "Cascadia Code", "Consolas", monospace;
+    --app-font-code: "Consolas", "SFMono-Regular", "Menlo", "Monaco", "Cascadia Mono", "Cascadia Code", "Liberation Mono", "Courier New", monospace;
 }
 
 html,
@@ -53,6 +56,9 @@ html[data-theme="light"] {
     --panel-header-bg: #f1ebdf;
     --panel-header-border: #d7cdbf;
     --editor-toolbar-bg: #f1ebdf;
+    --code-block-bg: #f4efe5;
+    --code-block-border: #c8bda9;
+    --code-block-shadow: 0 10px 22px rgba(75, 60, 42, 0.13);
 }
 
 html[data-font-mode="serif"] {
@@ -68,7 +74,7 @@ html[data-font-mode="rounded"] {
 html[data-font-mode="mono"] {
     --app-font-editor: "Cascadia Mono", "Cascadia Code", "Consolas", monospace;
     --app-font-heading: "Cascadia Mono", "Cascadia Code", "Consolas", monospace;
-    --app-font-code: "Cascadia Mono", "Cascadia Code", "Consolas", monospace;
+    --app-font-code: "Consolas", "SFMono-Regular", "Menlo", "Monaco", "Cascadia Mono", "Cascadia Code", "Liberation Mono", "Courier New", monospace;
 }
 
 .milkdown {
@@ -115,6 +121,71 @@ html[data-theme="light"] .milkdown {
     overflow: visible;
     padding: 12px 14px 24px;
     color: var(--text-main);
+}
+
+.milkdown .ProseMirror h1 {
+    font-size: 1.8em;
+}
+
+.milkdown .ProseMirror h2 {
+    font-size: 1.55em;
+}
+
+.milkdown .ProseMirror h3 {
+    font-size: 1.32em;
+}
+
+.milkdown .ProseMirror h4 {
+    font-size: 1.14em;
+}
+
+.milkdown .ProseMirror h5 {
+    font-size: 1.02em;
+}
+
+.milkdown .ProseMirror h6 {
+    font-size: 0.94em;
+}
+
+.milkdown .ProseMirror pre,
+.milkdown .milkdown-code-block {
+    border: 1px solid var(--code-block-border);
+    border-radius: 8px;
+    background: var(--code-block-bg);
+    box-shadow: var(--code-block-shadow);
+    font-family: var(--app-font-code);
+    padding: 0.5lh 0.5em;
+}
+
+.milkdown .ProseMirror pre code,
+.milkdown .milkdown-code-block .cm-editor,
+.milkdown .milkdown-code-block .cm-content,
+.milkdown .milkdown-code-block .cm-gutters {
+    background: transparent;
+    font-family: var(--app-font-code);
+}
+
+.milkdown .milkdown-code-block .tools {
+    position: absolute;
+    top: -24px;
+    right: 0;
+    left: auto;
+    z-index: 2;
+    gap: 8px;
+    justify-content: flex-end;
+    pointer-events: auto;
+}
+
+.milkdown .milkdown-code-block .tools .language-button {
+    margin-bottom: 0;
+}
+
+.milkdown .milkdown-code-block:hover .tools .language-button,
+.milkdown .milkdown-code-block:hover .tools .tools-button-group button,
+.milkdown .milkdown-code-block .tools:hover .language-button,
+.milkdown .milkdown-code-block .tools:hover .tools-button-group button {
+    pointer-events: auto;
+    opacity: 1;
 }
 
 .milkdown .toolbar,
