@@ -149,6 +149,11 @@ fn notify_frontend_ready(app: AppHandle<Wry>, state: State<'_, SharedAppState>) 
         emit_app_menu_action(&app, action_id.as_str());
     }
 
+    if let Some(window) = app.get_webview_window("main") {
+        window.show().map_err(|error| error.to_string())?;
+        let _ = window.set_focus();
+    }
+
     Ok(())
 }
 

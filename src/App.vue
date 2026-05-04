@@ -43,7 +43,7 @@
 <script setup lang="ts">
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import {
     applyFontMode,
@@ -135,6 +135,23 @@ function applyTypographyStylesheet(cssContent: string) {
     if (!existingTag) {
         document.head.append(styleTag);
     }
+}
+
+function waitForNextAnimationFrame() {
+    return new Promise<void>((resolve) => {
+        if (typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") {
+            resolve();
+            return;
+        }
+
+        window.requestAnimationFrame(() => resolve());
+    });
+}
+
+async function waitForFirstStablePaint() {
+    await nextTick();
+    await waitForNextAnimationFrame();
+    await waitForNextAnimationFrame();
 }
 
 function makeDocumentId() {
@@ -419,6 +436,7 @@ onMounted(async () => {
     }
 
     await syncAppState(resolvedLocale);
+    await waitForFirstStablePaint();
     await invoke("notify_frontend_ready");
 });
 
