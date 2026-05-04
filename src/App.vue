@@ -1,5 +1,5 @@
 <template>
-    <main class="app-shell">
+    <main class="app-shell" :class="{ 'resizing-sidebar': isResizingSidebar }">
         <div class="tabs" role="tablist" :aria-label="t('tabs.listLabel')">
             <button
                 v-for="documentItem in documents"
@@ -24,7 +24,37 @@
             </button>
         </div>
 
-        <section v-if="activeDocument" class="editor-workspace">
+        <section
+            v-if="activeDocument"
+            class="editor-workspace"
+            :class="`sidebar-${sidebarPosition}`"
+        >
+            <aside
+                v-if="isSidebarVisible"
+                class="sidebar-pane"
+                :style="sidebarStyle"
+                aria-label="Sidebar"
+            >
+                <div class="sidebar-header">{{ t("sidebar.title") }}</div>
+                <div class="sidebar-empty">{{ t("sidebar.placeholder") }}</div>
+            </aside>
+            <div
+                v-if="isSidebarVisible"
+                class="sidebar-resizer"
+                role="separator"
+                aria-orientation="vertical"
+                :aria-valuenow="sidebarWidth"
+                :aria-valuemin="SIDEBAR_MIN_WIDTH"
+                :aria-valuemax="SIDEBAR_MAX_WIDTH"
+                @pointerdown="startSidebarResize"
+            />
+            <div
+                v-if="isResizingSidebar"
+                class="sidebar-resize-capture"
+                @pointermove="resizeSidebar"
+                @pointerup="stopSidebarResize"
+                @pointercancel="stopSidebarResize"
+            />
             <section class="pane">
                 <div class="editor-scroll">
                     <MilkdownEditor
@@ -81,15 +111,28 @@ type TypographyStylesheet = {
     content: string;
 };
 
+type SidebarVisibility = "show" | "hidden";
+type SidebarPosition = "left" | "right";
+
 const LOCALE_MENU_EVENT = "language-menu-selected";
 const THEME_MENU_EVENT = "theme-menu-selected";
 const FONT_MENU_EVENT = "font-menu-selected";
 const APP_MENU_EVENT = "app-menu-selected";
 const TYPOGRAPHY_STYLE_TAG_ID = "custom-typography-stylesheet";
+const SIDEBAR_WIDTH_STORAGE_KEY = "tiny-mde-sidebar-width";
+const SIDEBAR_MIN_WIDTH = 180;
+const SIDEBAR_MAX_WIDTH = 420;
+const SIDEBAR_DEFAULT_WIDTH = 240;
 const { t } = useI18n();
 const localeMode = ref<LocaleMode>("auto");
 const themeMode = ref<ThemeMode>("system");
 const fontMode = ref<FontMode>("system");
+const sidebarVisibility = ref<SidebarVisibility>("hidden");
+const sidebarPosition = ref<SidebarPosition>("left");
+const sidebarWidth = ref(SIDEBAR_DEFAULT_WIDTH);
+const isResizingSidebar = ref(false);
+const sidebarResizeStartX = ref(0);
+const sidebarResizeStartWidth = ref(SIDEBAR_DEFAULT_WIDTH);
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const documents = ref<DocumentTab[]>([]);
 const activeDocumentId = ref<string>("");
@@ -99,6 +142,10 @@ const typographyStylesheetPath = ref<string | null>(null);
 const activeDocument = computed(
     () => documents.value.find((documentItem) => documentItem.id === activeDocumentId.value) ?? null
 );
+const isSidebarVisible = computed(() => sidebarVisibility.value === "show");
+const sidebarStyle = computed(() => ({
+    width: `${sidebarWidth.value}px`,
+}));
 
 function syncAppState(localeCode: LocaleCode) {
     if (!isTauri) {
@@ -110,6 +157,8 @@ function syncAppState(localeCode: LocaleCode) {
         locale: localeCode,
         themeMode: themeMode.value,
         fontMode: fontMode.value,
+        sidebarVisibility: sidebarVisibility.value,
+        sidebarPosition: sidebarPosition.value,
     });
 }
 
@@ -146,6 +195,27 @@ function waitForNextAnimationFrame() {
 
         window.requestAnimationFrame(() => resolve());
     });
+}
+
+function clampSidebarWidth(width: number) {
+    return Math.min(Math.max(width, SIDEBAR_MIN_WIDTH), SIDEBAR_MAX_WIDTH);
+}
+
+function loadSidebarWidth() {
+    if (typeof window === "undefined") {
+        return SIDEBAR_DEFAULT_WIDTH;
+    }
+
+    const savedWidth = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
+    return Number.isFinite(savedWidth) ? clampSidebarWidth(savedWidth) : SIDEBAR_DEFAULT_WIDTH;
+}
+
+function saveSidebarWidth(width: number) {
+    if (typeof window === "undefined") {
+        return;
+    }
+
+    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clampSidebarWidth(width)));
 }
 
 async function waitForFirstStablePaint() {
@@ -322,9 +392,41 @@ async function handleMenuAction(actionId: string) {
         case "preferences_clear_typography_css":
             await clearTypographyStylesheet();
             break;
+        case "sidebar_show":
+            sidebarVisibility.value = sidebarVisibility.value === "show" ? "hidden" : "show";
+            break;
+        case "sidebar_position_right":
+            sidebarPosition.value = sidebarPosition.value === "right" ? "left" : "right";
+            break;
         default:
             break;
     }
+}
+
+function startSidebarResize(event: PointerEvent) {
+    event.preventDefault();
+    sidebarResizeStartX.value = event.clientX;
+    sidebarResizeStartWidth.value = sidebarWidth.value;
+    isResizingSidebar.value = true;
+}
+
+function resizeSidebar(event: PointerEvent) {
+    if (!isResizingSidebar.value) {
+        return;
+    }
+
+    const direction = sidebarPosition.value === "left" ? 1 : -1;
+    const delta = (event.clientX - sidebarResizeStartX.value) * direction;
+    sidebarWidth.value = clampSidebarWidth(sidebarResizeStartWidth.value + delta);
+}
+
+function stopSidebarResize() {
+    if (!isResizingSidebar.value) {
+        return;
+    }
+
+    isResizingSidebar.value = false;
+    saveSidebarWidth(sidebarWidth.value);
 }
 
 async function selectTypographyStylesheet() {
@@ -351,7 +453,7 @@ async function clearTypographyStylesheet() {
     applyTypographyStylesheet("");
 }
 
-watch([localeMode, themeMode, fontMode], ([nextLocaleMode]) => {
+watch([localeMode, themeMode, fontMode, sidebarVisibility, sidebarPosition], ([nextLocaleMode]) => {
     const resolvedLocale = applyLocaleMode(nextLocaleMode);
     applyCurrentTheme();
     applyFontMode(fontMode.value);
@@ -373,6 +475,8 @@ let colorSchemeMedia: MediaQueryList | null = null;
 let handleColorSchemeChange: ((event: MediaQueryListEvent) => void) | null = null;
 
 onMounted(async () => {
+    sidebarWidth.value = loadSidebarWidth();
+
     if (!isTauri) {
         applyLocaleMode(localeMode.value);
         applyCurrentTheme();
@@ -383,11 +487,16 @@ onMounted(async () => {
     const savedLocaleMode = await invoke<LocaleMode>("get_saved_locale_mode");
     const savedThemeMode = await invoke<ThemeMode>("get_saved_theme_mode");
     const savedFontMode = await invoke<FontMode>("get_saved_font_mode");
+    const savedSidebarVisibility =
+        await invoke<SidebarVisibility>("get_saved_sidebar_visibility");
+    const savedSidebarPosition = await invoke<SidebarPosition>("get_saved_sidebar_position");
     const savedTypographyStylesheet =
         await invoke<TypographyStylesheet | null>("get_saved_typography_stylesheet");
     localeMode.value = savedLocaleMode;
     themeMode.value = savedThemeMode;
     fontMode.value = savedFontMode;
+    sidebarVisibility.value = savedSidebarVisibility === "show" ? "show" : "hidden";
+    sidebarPosition.value = savedSidebarPosition === "right" ? "right" : "left";
     const resolvedLocale = applyLocaleMode(savedLocaleMode);
     applyCurrentTheme();
     applyFontMode(savedFontMode);
@@ -445,6 +554,7 @@ onBeforeUnmount(() => {
     unlistenThemeMenuEvent?.();
     unlistenFontMenuEvent?.();
     unlistenAppMenuEvent?.();
+    stopSidebarResize();
 
     if (colorSchemeMedia && handleColorSchemeChange) {
         colorSchemeMedia.removeEventListener("change", handleColorSchemeChange);
@@ -558,6 +668,74 @@ onBeforeUnmount(() => {
     flex: 1;
     overflow: hidden;
     padding: 8px;
+}
+
+.editor-workspace.sidebar-right {
+    flex-direction: row-reverse;
+}
+
+.sidebar-pane {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex: 0 0 auto;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    background: var(--panel-bg);
+}
+
+.sidebar-header {
+    flex: 0 0 auto;
+    border-bottom: 1px solid var(--panel-header-border);
+    padding: 10px 12px;
+    background: var(--panel-header-bg);
+    color: var(--text-main);
+    font: 600 13px/1.2 var(--app-font-ui);
+}
+
+.sidebar-empty {
+    overflow: auto;
+    padding: 12px;
+    color: var(--text-muted);
+    font: 12px/1.45 var(--app-font-ui);
+}
+
+.sidebar-resizer {
+    position: relative;
+    z-index: 1;
+    width: 9px;
+    flex: 0 0 9px;
+    cursor: col-resize;
+}
+
+.sidebar-resizer::before {
+    position: absolute;
+    top: 8px;
+    right: 4px;
+    bottom: 8px;
+    width: 1px;
+    background: var(--panel-border);
+    content: "";
+}
+
+.sidebar-resizer:hover::before,
+.app-shell.resizing-sidebar .sidebar-resizer::before {
+    width: 2px;
+    background: var(--tab-accent);
+}
+
+.app-shell.resizing-sidebar {
+    cursor: col-resize;
+    user-select: none;
+}
+
+.sidebar-resize-capture {
+    position: fixed;
+    z-index: 10;
+    inset: 0;
+    cursor: col-resize;
 }
 
 .pane {

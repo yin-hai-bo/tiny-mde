@@ -8,16 +8,18 @@ use std::{
     sync::Mutex,
 };
 use tauri::{
+    AppHandle, Emitter, Manager, State, Wry,
     menu::{
         AboutMetadataBuilder, CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder,
         PredefinedMenuItem, SubmenuBuilder,
     },
-    AppHandle, Emitter, Manager, State, Wry,
 };
 
 const DEFAULT_LOCALE_MODE: &str = "auto";
 const DEFAULT_THEME_MODE: &str = "system";
 const DEFAULT_FONT_MODE: &str = "system";
+const DEFAULT_SIDEBAR_VISIBILITY: &str = "hidden";
+const DEFAULT_SIDEBAR_POSITION: &str = "left";
 const FILE_NEW_ID: &str = "file_new";
 const FILE_OPEN_ID: &str = "file_open";
 const FILE_SAVE_ID: &str = "file_save";
@@ -32,6 +34,10 @@ const FONT_SYSTEM_ID: &str = "font_system";
 const FONT_SERIF_ID: &str = "font_serif";
 const FONT_ROUNDED_ID: &str = "font_rounded";
 const FONT_MONO_ID: &str = "font_mono";
+const SIDEBAR_SHOW_ID: &str = "sidebar_show";
+const SIDEBAR_HIDE_ID: &str = "sidebar_hide";
+const SIDEBAR_POSITION_LEFT_ID: &str = "sidebar_position_left";
+const SIDEBAR_POSITION_RIGHT_ID: &str = "sidebar_position_right";
 const TYPOGRAPHY_SELECT_ID: &str = "preferences_select_typography_css";
 const TYPOGRAPHY_CLEAR_ID: &str = "preferences_clear_typography_css";
 const LANGUAGE_MENU_EVENT: &str = "language-menu-selected";
@@ -41,6 +47,8 @@ const APP_MENU_EVENT: &str = "app-menu-selected";
 const LOCALE_MODE_FILE_NAME: &str = "locale-mode.txt";
 const THEME_MODE_FILE_NAME: &str = "theme-mode.txt";
 const FONT_MODE_FILE_NAME: &str = "font-mode.txt";
+const SIDEBAR_VISIBILITY_FILE_NAME: &str = "sidebar-visibility.txt";
+const SIDEBAR_POSITION_FILE_NAME: &str = "sidebar-position.txt";
 const TYPOGRAPHY_CSS_FILE_NAME: &str = "typography-css-path.txt";
 
 #[derive(Default)]
@@ -88,6 +96,16 @@ fn get_saved_font_mode(app: AppHandle<Wry>) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn get_saved_sidebar_visibility(app: AppHandle<Wry>) -> Result<String, String> {
+    load_saved_sidebar_visibility(&app)
+}
+
+#[tauri::command]
+fn get_saved_sidebar_position(app: AppHandle<Wry>) -> Result<String, String> {
+    load_saved_sidebar_position(&app)
+}
+
+#[tauri::command]
 fn get_saved_typography_stylesheet(
     app: AppHandle<Wry>,
 ) -> Result<Option<TypographyStylesheet>, String> {
@@ -101,6 +119,8 @@ fn sync_app_state(
     locale: String,
     theme_mode: String,
     font_mode: String,
+    sidebar_visibility: String,
+    sidebar_position: String,
 ) -> Result<(), String> {
     if !matches!(locale_mode.as_str(), "auto" | "en" | "zh-CN") {
         return Err("unsupported language mode".to_string());
@@ -118,9 +138,19 @@ fn sync_app_state(
         return Err("unsupported font mode".to_string());
     }
 
+    if !matches!(sidebar_visibility.as_str(), "show" | "hide" | "hidden") {
+        return Err("unsupported sidebar visibility".to_string());
+    }
+
+    if !matches!(sidebar_position.as_str(), "left" | "right") {
+        return Err("unsupported sidebar position".to_string());
+    }
+
     save_locale_mode(&app, locale_mode.as_str())?;
     save_theme_mode(&app, theme_mode.as_str())?;
     save_font_mode(&app, font_mode.as_str())?;
+    save_sidebar_visibility(&app, sidebar_visibility.as_str())?;
+    save_sidebar_position(&app, sidebar_position.as_str())?;
 
     let menu = build_app_menu(
         &app,
@@ -128,6 +158,8 @@ fn sync_app_state(
         locale.as_str(),
         theme_mode.as_str(),
         font_mode.as_str(),
+        sidebar_visibility.as_str(),
+        sidebar_position.as_str(),
     )
     .map_err(|error| error.to_string())?;
     app.set_menu(menu).map_err(|error| error.to_string())?;
@@ -135,7 +167,10 @@ fn sync_app_state(
 }
 
 #[tauri::command]
-fn notify_frontend_ready(app: AppHandle<Wry>, state: State<'_, SharedAppState>) -> Result<(), String> {
+fn notify_frontend_ready(
+    app: AppHandle<Wry>,
+    state: State<'_, SharedAppState>,
+) -> Result<(), String> {
     let pending_actions = {
         let mut runtime = state
             .runtime
@@ -276,8 +311,8 @@ fn markdown_dialog() -> FileDialog {
 }
 
 fn read_typography_stylesheet(path: PathBuf) -> Result<TypographyStylesheet, String> {
-    let content =
-        fs::read_to_string(&path).map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+    let content = fs::read_to_string(&path)
+        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
 
     Ok(TypographyStylesheet {
         path: path.to_string_lossy().into_owned(),
@@ -312,7 +347,9 @@ fn load_saved_locale_mode(app: &AppHandle<Wry>) -> Result<String, String> {
     let path = app_config_file_path(app, LOCALE_MODE_FILE_NAME)?;
     let saved_mode = match fs::read_to_string(&path) {
         Ok(content) => content.trim().to_string(),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => DEFAULT_LOCALE_MODE.to_string(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            DEFAULT_LOCALE_MODE.to_string()
+        }
         Err(error) => return Err(format!("failed to read {}: {error}", path.display())),
     };
 
@@ -323,7 +360,9 @@ fn load_saved_theme_mode(app: &AppHandle<Wry>) -> Result<String, String> {
     let path = app_config_file_path(app, THEME_MODE_FILE_NAME)?;
     let saved_mode = match fs::read_to_string(&path) {
         Ok(content) => content.trim().to_string(),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => DEFAULT_THEME_MODE.to_string(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            DEFAULT_THEME_MODE.to_string()
+        }
         Err(error) => return Err(format!("failed to read {}: {error}", path.display())),
     };
 
@@ -339,6 +378,32 @@ fn load_saved_font_mode(app: &AppHandle<Wry>) -> Result<String, String> {
     };
 
     Ok(normalize_font_mode(saved_mode.as_str()).to_string())
+}
+
+fn load_saved_sidebar_visibility(app: &AppHandle<Wry>) -> Result<String, String> {
+    let path = app_config_file_path(app, SIDEBAR_VISIBILITY_FILE_NAME)?;
+    let saved_visibility = match fs::read_to_string(&path) {
+        Ok(content) => content.trim().to_string(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            DEFAULT_SIDEBAR_VISIBILITY.to_string()
+        }
+        Err(error) => return Err(format!("failed to read {}: {error}", path.display())),
+    };
+
+    Ok(normalize_sidebar_visibility(saved_visibility.as_str()).to_string())
+}
+
+fn load_saved_sidebar_position(app: &AppHandle<Wry>) -> Result<String, String> {
+    let path = app_config_file_path(app, SIDEBAR_POSITION_FILE_NAME)?;
+    let saved_position = match fs::read_to_string(&path) {
+        Ok(content) => content.trim().to_string(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            DEFAULT_SIDEBAR_POSITION.to_string()
+        }
+        Err(error) => return Err(format!("failed to read {}: {error}", path.display())),
+    };
+
+    Ok(normalize_sidebar_position(saved_position.as_str()).to_string())
 }
 
 fn load_saved_typography_stylesheet(
@@ -391,7 +456,22 @@ fn save_font_mode(app: &AppHandle<Wry>, mode: &str) -> Result<(), String> {
         .map_err(|error| format!("failed to write {}: {error}", path.display()))
 }
 
-fn save_typography_stylesheet_path(app: &AppHandle<Wry>, path_value: Option<&str>) -> Result<(), String> {
+fn save_sidebar_visibility(app: &AppHandle<Wry>, visibility: &str) -> Result<(), String> {
+    let path = app_config_file_path(app, SIDEBAR_VISIBILITY_FILE_NAME)?;
+    fs::write(&path, normalize_sidebar_visibility(visibility))
+        .map_err(|error| format!("failed to write {}: {error}", path.display()))
+}
+
+fn save_sidebar_position(app: &AppHandle<Wry>, position: &str) -> Result<(), String> {
+    let path = app_config_file_path(app, SIDEBAR_POSITION_FILE_NAME)?;
+    fs::write(&path, normalize_sidebar_position(position))
+        .map_err(|error| format!("failed to write {}: {error}", path.display()))
+}
+
+fn save_typography_stylesheet_path(
+    app: &AppHandle<Wry>,
+    path_value: Option<&str>,
+) -> Result<(), String> {
     let path = app_config_file_path(app, TYPOGRAPHY_CSS_FILE_NAME)?;
 
     match path_value.filter(|value| !value.is_empty()) {
@@ -430,6 +510,20 @@ fn normalize_font_mode(mode: &str) -> &str {
     }
 }
 
+fn normalize_sidebar_visibility(visibility: &str) -> &str {
+    match visibility {
+        "show" => "show",
+        _ => DEFAULT_SIDEBAR_VISIBILITY,
+    }
+}
+
+fn normalize_sidebar_position(position: &str) -> &str {
+    match position {
+        "right" => "right",
+        _ => DEFAULT_SIDEBAR_POSITION,
+    }
+}
+
 fn resolve_locale_from_mode(mode: &str) -> String {
     match normalize_locale_mode(mode) {
         "en" => "en".to_string(),
@@ -450,8 +544,8 @@ fn is_chinese_locale(locale: &str) -> bool {
 }
 
 fn read_document(path: PathBuf) -> Result<OpenedDocument, String> {
-    let content =
-        fs::read_to_string(&path).map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+    let content = fs::read_to_string(&path)
+        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
 
     Ok(OpenedDocument {
         name: file_name(&path),
@@ -468,13 +562,21 @@ fn build_language_submenu(
     let is_chinese = is_chinese_locale(locale);
     let auto = CheckMenuItemBuilder::with_id(
         LANGUAGE_AUTO_ID,
-        if is_chinese { "自动(&A)" } else { "Automatic(&A)" },
+        if is_chinese {
+            "自动(&A)"
+        } else {
+            "Automatic(&A)"
+        },
     )
     .checked(false)
     .build(app)?;
     let english = CheckMenuItemBuilder::with_id(
         LANGUAGE_EN_ID,
-        if is_chinese { "英文(&E)" } else { "English(&E)" },
+        if is_chinese {
+            "英文(&E)"
+        } else {
+            "English(&E)"
+        },
     )
     .checked(false)
     .build(app)?;
@@ -495,11 +597,18 @@ fn build_language_submenu(
         _ => english.set_checked(true)?,
     }
 
-    SubmenuBuilder::new(app, if is_chinese { "语言(&L)" } else { "&Language" })
-        .item(&auto)
-        .item(&english)
-        .item(&simplified_chinese)
-        .build()
+    SubmenuBuilder::new(
+        app,
+        if is_chinese {
+            "语言(&L)"
+        } else {
+            "&Language"
+        },
+    )
+    .item(&auto)
+    .item(&english)
+    .item(&simplified_chinese)
+    .build()
 }
 
 fn build_theme_submenu(
@@ -520,7 +629,11 @@ fn build_theme_submenu(
     .build(app)?;
     let light = CheckMenuItemBuilder::with_id(
         THEME_LIGHT_ID,
-        if is_chinese { "浅色(&L)" } else { "Light(&L)" },
+        if is_chinese {
+            "浅色(&L)"
+        } else {
+            "Light(&L)"
+        },
     )
     .checked(false)
     .build(app)?;
@@ -562,19 +675,31 @@ fn build_font_submenu(
     .build(app)?;
     let serif = CheckMenuItemBuilder::with_id(
         FONT_SERIF_ID,
-        if is_chinese { "衬线文稿(&E)" } else { "Serif Editorial(&E)" },
+        if is_chinese {
+            "衬线文稿(&E)"
+        } else {
+            "Serif Editorial(&E)"
+        },
     )
     .checked(false)
     .build(app)?;
     let rounded = CheckMenuItemBuilder::with_id(
         FONT_ROUNDED_ID,
-        if is_chinese { "圆润界面(&R)" } else { "Rounded UI(&R)" },
+        if is_chinese {
+            "圆润界面(&R)"
+        } else {
+            "Rounded UI(&R)"
+        },
     )
     .checked(false)
     .build(app)?;
     let mono = CheckMenuItemBuilder::with_id(
         FONT_MONO_ID,
-        if is_chinese { "等宽打字机(&M)" } else { "Monospace(&M)" },
+        if is_chinese {
+            "等宽打字机(&M)"
+        } else {
+            "Monospace(&M)"
+        },
     )
     .checked(false)
     .build(app)?;
@@ -586,12 +711,140 @@ fn build_font_submenu(
         _ => system.set_checked(true)?,
     }
 
-    SubmenuBuilder::new(app, if is_chinese { "字体风格(&F)" } else { "&Font Style" })
-        .item(&system)
-        .item(&serif)
-        .item(&rounded)
-        .item(&mono)
-        .build()
+    SubmenuBuilder::new(
+        app,
+        if is_chinese {
+            "字体风格(&F)"
+        } else {
+            "&Font Style"
+        },
+    )
+    .item(&system)
+    .item(&serif)
+    .item(&rounded)
+    .item(&mono)
+    .build()
+}
+
+#[allow(dead_code)]
+fn build_sidebar_submenu_legacy(
+    app: &AppHandle<Wry>,
+    sidebar_visibility: &str,
+    sidebar_position: &str,
+    locale: &str,
+) -> tauri::Result<tauri::menu::Submenu<Wry>> {
+    let is_chinese = is_chinese_locale(locale);
+    let show = CheckMenuItemBuilder::with_id(
+        SIDEBAR_SHOW_ID,
+        if is_chinese { "显示(&S)" } else { "&Show" },
+    )
+    .checked(false)
+    .build(app)?;
+    let hide = CheckMenuItemBuilder::with_id(
+        SIDEBAR_HIDE_ID,
+        if is_chinese { "隐藏(&H)" } else { "&Hide" },
+    )
+    .checked(false)
+    .build(app)?;
+    let left = CheckMenuItemBuilder::with_id(
+        SIDEBAR_POSITION_LEFT_ID,
+        if is_chinese { "左侧(&L)" } else { "&Left" },
+    )
+    .checked(false)
+    .build(app)?;
+    let right = CheckMenuItemBuilder::with_id(
+        SIDEBAR_POSITION_RIGHT_ID,
+        if is_chinese { "右侧(&R)" } else { "&Right" },
+    )
+    .checked(false)
+    .build(app)?;
+
+    match normalize_sidebar_visibility(sidebar_visibility) {
+        "show" => show.set_checked(true)?,
+        _ => hide.set_checked(true)?,
+    }
+
+    match normalize_sidebar_position(sidebar_position) {
+        "right" => right.set_checked(true)?,
+        _ => left.set_checked(true)?,
+    }
+
+    let visibility_submenu = SubmenuBuilder::new(
+        app,
+        if is_chinese {
+            "显示/隐藏(&V)"
+        } else {
+            "&Visibility"
+        },
+    )
+    .item(&show)
+    .item(&hide)
+    .build()?;
+
+    let position_submenu = SubmenuBuilder::new(
+        app,
+        if is_chinese {
+            "位置(&P)"
+        } else {
+            "&Position"
+        },
+    )
+    .item(&left)
+    .item(&right)
+    .build()?;
+
+    SubmenuBuilder::new(
+        app,
+        if is_chinese {
+            "侧边栏(&S)"
+        } else {
+            "&Sidebar"
+        },
+    )
+    .item(&visibility_submenu)
+    .item(&position_submenu)
+    .build()
+}
+
+fn build_sidebar_submenu(
+    app: &AppHandle<Wry>,
+    sidebar_visibility: &str,
+    sidebar_position: &str,
+    locale: &str,
+) -> tauri::Result<tauri::menu::Submenu<Wry>> {
+    let is_chinese = is_chinese_locale(locale);
+    let show = CheckMenuItemBuilder::with_id(
+        SIDEBAR_SHOW_ID,
+        if is_chinese {
+            "\u{663E}\u{793A}(&S)"
+        } else {
+            "&Show"
+        },
+    )
+    .checked(normalize_sidebar_visibility(sidebar_visibility) == "show")
+    .build(app)?;
+    let right = CheckMenuItemBuilder::with_id(
+        SIDEBAR_POSITION_RIGHT_ID,
+        if is_chinese {
+            "\u{53F3}\u{4FA7}(&R)"
+        } else {
+            "&Right"
+        },
+    )
+    .checked(normalize_sidebar_position(sidebar_position) == "right")
+    .build(app)?;
+
+    SubmenuBuilder::new(
+        app,
+        if is_chinese {
+            "\u{4FA7}\u{8FB9}\u{680F}(&S)"
+        } else {
+            "&Sidebar"
+        },
+    )
+    .item(&show)
+    .item(&right)
+    .build()
 }
 
 fn build_app_menu(
@@ -600,24 +853,33 @@ fn build_app_menu(
     locale: &str,
     theme_mode: &str,
     font_mode: &str,
+    sidebar_visibility: &str,
+    sidebar_position: &str,
 ) -> tauri::Result<tauri::menu::Menu<Wry>> {
     let is_chinese = is_chinese_locale(locale);
     let language_submenu = build_language_submenu(app, locale_mode, locale)?;
     let theme_submenu = build_theme_submenu(app, theme_mode, locale)?;
     let font_submenu = build_font_submenu(app, font_mode, locale)?;
+    let sidebar_submenu = build_sidebar_submenu(app, sidebar_visibility, sidebar_position, locale)?;
 
-    let new_item = MenuItemBuilder::with_id(FILE_NEW_ID, if is_chinese { "新建(&N)" } else { "&New" })
-        .accelerator("CmdOrCtrl+N")
-        .build(app)?;
+    let new_item =
+        MenuItemBuilder::with_id(FILE_NEW_ID, if is_chinese { "新建(&N)" } else { "&New" })
+            .accelerator("CmdOrCtrl+N")
+            .build(app)?;
     let open_item = MenuItemBuilder::with_id(
         FILE_OPEN_ID,
-        if is_chinese { "打开(&O)..." } else { "&Open..." },
+        if is_chinese {
+            "打开(&O)..."
+        } else {
+            "&Open..."
+        },
     )
     .accelerator("CmdOrCtrl+O")
     .build(app)?;
-    let save_item = MenuItemBuilder::with_id(FILE_SAVE_ID, if is_chinese { "保存(&S)" } else { "&Save" })
-        .accelerator("CmdOrCtrl+S")
-        .build(app)?;
+    let save_item =
+        MenuItemBuilder::with_id(FILE_SAVE_ID, if is_chinese { "保存(&S)" } else { "&Save" })
+            .accelerator("CmdOrCtrl+S")
+            .build(app)?;
     let save_as_item = MenuItemBuilder::with_id(
         FILE_SAVE_AS_ID,
         if is_chinese {
@@ -688,11 +950,21 @@ fn build_app_menu(
         .copy_with_text(if is_chinese { "复制(&C)" } else { "&Copy" })
         .paste_with_text(if is_chinese { "粘贴(&P)" } else { "&Paste" })
         .separator()
-        .select_all_with_text(if is_chinese { "全选(&A)" } else { "Select &All" })
+        .select_all_with_text(if is_chinese {
+            "全选(&A)"
+        } else {
+            "Select &All"
+        })
         .build()?;
 
     let view_submenu = SubmenuBuilder::new(app, if is_chinese { "视图(&V)" } else { "&View" })
-        .fullscreen_with_text(if is_chinese { "全屏(&F)" } else { "&Fullscreen" })
+        .item(&sidebar_submenu)
+        .separator()
+        .fullscreen_with_text(if is_chinese {
+            "全屏(&F)"
+        } else {
+            "&Fullscreen"
+        })
         .build()?;
 
     let about_metadata = AboutMetadataBuilder::new().version(Some("0.1.0")).build();
@@ -726,12 +998,16 @@ fn main() {
             let locale = resolve_locale_from_mode(locale_mode.as_str());
             let theme_mode = load_saved_theme_mode(&app.handle())?;
             let font_mode = load_saved_font_mode(&app.handle())?;
+            let sidebar_visibility = load_saved_sidebar_visibility(&app.handle())?;
+            let sidebar_position = load_saved_sidebar_position(&app.handle())?;
             let menu = build_app_menu(
                 &app.handle(),
                 locale_mode.as_str(),
                 locale.as_str(),
                 theme_mode.as_str(),
                 font_mode.as_str(),
+                sidebar_visibility.as_str(),
+                sidebar_position.as_str(),
             )
             .map_err(|error| error.to_string())?;
             app.set_menu(menu).map_err(|error| error.to_string())?;
@@ -741,6 +1017,8 @@ fn main() {
             get_saved_locale_mode,
             get_saved_theme_mode,
             get_saved_font_mode,
+            get_saved_sidebar_visibility,
+            get_saved_sidebar_position,
             get_saved_typography_stylesheet,
             sync_app_state,
             notify_frontend_ready,
@@ -764,6 +1042,8 @@ fn main() {
             | FILE_OPEN_ID
             | FILE_SAVE_ID
             | FILE_SAVE_AS_ID
+            | SIDEBAR_SHOW_ID
+            | SIDEBAR_POSITION_RIGHT_ID
             | TYPOGRAPHY_SELECT_ID
             | TYPOGRAPHY_CLEAR_ID => {
                 if let Some(state) = app.try_state::<SharedAppState>() {

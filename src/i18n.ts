@@ -14,12 +14,16 @@ const messages = {
             name: "Tiny Markdown Editor",
         },
         editor: {
-            placeholder: "Write markdown here...",
+            placeholder: "\u5728\u8fd9\u91cc\u8f93\u5165 Markdown...",
+        },
+        sidebar: {
+            title: "\u4fa7\u8fb9\u680f",
+            placeholder: "\u5927\u7eb2\u4f1a\u663e\u793a\u5728\u8fd9\u91cc\u3002",
         },
         tabs: {
-            listLabel: "Open documents",
-            untitled: "Untitled {n}",
-            confirmCloseDirty: 'Close "{name}" without saving?',
+            listLabel: "\u5df2\u6253\u5f00\u6587\u6863",
+            untitled: "\u672a\u547d\u540d {n}",
+            confirmCloseDirty: "\u5173\u95ed\u201c{name}\u201d\u4e14\u4e0d\u4fdd\u5b58\u5417\uff1f",
         },
     },
     "zh-CN": {
@@ -27,12 +31,16 @@ const messages = {
             name: "Tiny Markdown Editor",
         },
         editor: {
-            placeholder: "在这里输入 Markdown...",
+            placeholder: "Write markdown here...",
+        },
+        sidebar: {
+            title: "Sidebar",
+            placeholder: "Outline will appear here.",
         },
         tabs: {
-            listLabel: "已打开文档",
-            untitled: "未命名 {n}",
-            confirmCloseDirty: '关闭“{name}”且不保存吗？',
+            listLabel: "Open documents",
+            untitled: "Untitled {n}",
+            confirmCloseDirty: 'Close "{name}" without saving?',
         },
     },
 } as const;
